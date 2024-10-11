@@ -25,9 +25,12 @@ import qasync
 
 
 async def get_lobby_players(connection):
+    print('a')
     # ロビー情報を取得
     lobby = await connection.request('get', '/lol-lobby/v2/lobby')
+    print(lobby)
     lobby_data = await lobby.json()
+    print(lobby_data)
 
     # プレイヤー情報を読み取る
     players = []
@@ -110,7 +113,9 @@ class MainWindow(QWidget):
 
         # ロビーからプレイヤーを追加するボタン
         self.add_from_lobby_button = QPushButton("ロビーから追加")
-        self.add_from_lobby_button.clicked.connect(self.add_players_from_lobby)  # ensure_open は削除
+        self.add_from_lobby_button.clicked.connect(
+            lambda: asyncio.create_task(self.add_players_from_lobby_handler())  # lambda 式でラップ
+        )
         input_layout.addWidget(self.add_from_lobby_button)
 
         # チーム分け実行ボタン
@@ -246,13 +251,22 @@ class MainWindow(QWidget):
         for item in selected_items:
             self.player_list.takeItem(self.player_list.row(item))
 
+    # ボタンクリック時のハンドラ関数
+    async def add_players_from_lobby_handler(self):  # async を追加
+        await asyncio.create_task(self.add_players_from_lobby())  # await を追加
+
     async def add_players_from_lobby(self):
-        await self.connector.ws.ensure_open()
-        players = await get_lobby_players(self.connector)
-        for player in players:
-            item = QListWidgetItem(f"{player['name']} ({player['rank']})")
-            item.setData(Qt.UserRole, player)
-            self.player_list.addItem(item)
+        async def wait_for_connection():
+            # 接続が確立された後に get_lobby_players を呼び出す
+            players = await get_lobby_players(self.connector.connection)
+
+            for player in players:
+                item = QListWidgetItem(f"{player['name']} ({player['rank']})")
+                item.setData(Qt.UserRole, player)
+                self.player_list.addItem(item)
+
+        # 接続が確立されたら wait_for_connection を実行
+        self.connector.ready(wait_for_connection)
 
     async def close_connector(self):
         await self.connector.stop()
