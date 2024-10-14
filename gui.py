@@ -14,6 +14,8 @@ from PyQt5.QtWidgets import (
     QGroupBox,
     QSpinBox,
     QInputDialog,
+    QTextEdit,
+    QApplication,
 )
 from PyQt5.QtCore import Qt
 from common import RANK_VAL, RANKS
@@ -27,7 +29,9 @@ class MainWindow(QWidget):
         self.setWindowTitle("LoLチーム分け")
 
         # GUIのレイアウトを構築
-        main_layout = QVBoxLayout()
+        main_layout = QHBoxLayout()
+        teamsplit_layout = QVBoxLayout()
+        gameresult_layout = QVBoxLayout()
 
         # プレイヤー情報入力エリア
         input_layout = QHBoxLayout()
@@ -41,7 +45,7 @@ class MainWindow(QWidget):
         self.add_player_button = QPushButton("追加")
         self.add_player_button.clicked.connect(self.add_player)
         input_layout.addWidget(self.add_player_button)
-        main_layout.addLayout(input_layout)
+        teamsplit_layout.addLayout(input_layout)
 
         # プレイヤー情報表示エリア
         player_group = QGroupBox("プレイヤー")
@@ -50,7 +54,7 @@ class MainWindow(QWidget):
         self.player_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         player_layout.addWidget(self.player_list)
         player_group.setLayout(player_layout)
-        main_layout.addWidget(player_group)
+        teamsplit_layout.addWidget(player_group)
 
         # プレイヤー情報変更・削除ボタン
         self.change_player_button = QPushButton("変更")
@@ -74,7 +78,7 @@ class MainWindow(QWidget):
         team_layout.addWidget(self.diff_label)
 
         team_group.setLayout(team_layout)
-        main_layout.addWidget(team_group)
+        teamsplit_layout.addWidget(team_group)
 
         # 許容ランク誤差入力エリア
         tolerance_layout = QHBoxLayout()
@@ -85,7 +89,7 @@ class MainWindow(QWidget):
             10
         )  # デフォルト値を設定 (必要に応じて変更)
         tolerance_layout.addWidget(self.tolerance_spinbox)
-        main_layout.addLayout(tolerance_layout)
+        teamsplit_layout.addLayout(tolerance_layout)
 
         # ロビーからプレイヤーを追加するボタン
         self.add_from_lobby_button = QPushButton("ロビーから追加")
@@ -95,14 +99,48 @@ class MainWindow(QWidget):
         input_layout.addWidget(self.add_from_lobby_button)
 
         # チーム分け実行ボタン
+        button_layout = QHBoxLayout()  # ボタンを横並びにするためのレイアウト
         self.divide_button = QPushButton("チーム分け")
         self.divide_button.clicked.connect(self.divide_teams)
-        main_layout.addWidget(self.divide_button)
+        button_layout.addWidget(self.divide_button)
+
+        # クリップボードにコピーするボタン
+        self.copy_button = QPushButton("結果コピー")
+        self.copy_button.clicked.connect(self.copy_to_clipboard)
+        button_layout.addWidget(self.copy_button)
+
+        teamsplit_layout.addLayout(button_layout)  # ボタンレイアウトを追加
+
+        # 試合結果取得ボタン
+        self.get_game_results_button = QPushButton("試合結果取得")
+        self.get_game_results_button.clicked.connect(self.get_game_results)
+
+        # 試合結果表示エリア
+        self.game_results_label = QLabel("試合結果")
+        self.game_results_text = QTextEdit()
+        self.game_results_text.setReadOnly(True)
+        game_results_layout = QVBoxLayout()
+        game_results_layout.addWidget(self.game_results_label)
+        game_results_layout.addWidget(self.game_results_text)
+
+        # 試合結果取得ボタンと試合結果表示エリアをまとめる
+        game_results_outer_layout = QVBoxLayout()
+        game_results_outer_layout.addWidget(self.get_game_results_button)
+        game_results_outer_layout.addLayout(game_results_layout)
+
+        # メインレイアウトに試合結果関連のレイアウトを追加
+        gameresult_layout.addLayout(game_results_outer_layout)
+
+        main_layout.addLayout(teamsplit_layout)
+        main_layout.addLayout(gameresult_layout)
 
         self.setLayout(main_layout)
 
     def start_worker(self):
         self.worker_thread.start()
+
+    def get_game_results(delf):
+        print('a')
 
     def add_players_to_list(self, players):
         if players:
@@ -159,40 +197,22 @@ class MainWindow(QWidget):
         for player in players:
             player["rank_value"] = RANK_VAL[player["rank"]]
 
-        # ランク順にソート
-        players.sort(key=lambda x: x["rank_value"], reverse=True)
-
-        # チーム分け
-        team1 = []
-        team2 = []
-        team1_total_rank = 0
-        team2_total_rank = 0
-
-        while players:
-            player = random.choice(players)
-            if team1_total_rank <= team2_total_rank:
-                team1.append(player)
-                team1_total_rank += player["rank_value"]
-            else:
-                team2.append(player)
-                team2_total_rank += player["rank_value"]
-            players.remove(player)
-
         # ランク差が許容範囲内になるまでチーム分けを繰り返す
+        team1_total_rank = 9999
+        team2_total_rank = 0
         while abs(team1_total_rank - team2_total_rank) > tolerance:
-            team1 = []
-            team2 = []
+            random.shuffle(players)
+            n = len(players) // 2
+            
+            team1 = players[:n]
+            team2 = players[n:]
             team1_total_rank = 0
             team2_total_rank = 0
-            random.shuffle(players)  # プレイヤーの順番をシャッフル
+            for player in team1:
+                team1_total_rank += player["rank_value"]
 
-            for player in players:
-                if team1_total_rank <= team2_total_rank:
-                    team1.append(player)
-                    team1_total_rank += player["rank_value"]
-                else:
-                    team2.append(player)
-                    team2_total_rank += player["rank_value"]
+            for player in team2:
+                team2_total_rank += player["rank_value"]
 
         return team1, team2
 
@@ -236,3 +256,15 @@ class MainWindow(QWidget):
 
         for item in selected_items:
             self.player_list.takeItem(self.player_list.row(item))
+
+    def copy_to_clipboard(self):
+        team1_text = "チーム1----\n"
+        for i in range(self.team1_list.count()):
+            team1_text += self.team1_list.item(i).text() + "\n"
+
+        team2_text = "チーム2----\n"
+        for i in range(self.team2_list.count()):
+            team2_text += self.team2_list.item(i).text() + "\n"
+
+        # クリップボードにコピー
+        QApplication.clipboard().setText(team1_text + "\n" + team2_text)

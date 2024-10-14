@@ -30,7 +30,22 @@ class WorkerThread(QThread):
                 div = soloq['previousSeasonHighestDivision']
                 rank = f'{tier} {div}' if div != 'NA' else tier
                 players.append({'name': name, 'rank': rank})
+                rank_json = await rank_data.json()
+            
+            # match_data = await connection.request('get', '/lol-match-history/v1/products/lol/%s/matches' % puuid)
+            # match_json = await match_data.json()
+            # games = match_json['games']['games']
+            # gameids = []
+            # for game in games:
+            #     if (game['endOfGameResult'] == 'GameComplete' and
+            #         game['gameType'] == 'CUSTOM_GAME' and
+            #         game['gameMode'] == 'CLASSIC'):
+            #         gameids.append(game['gameId'])
 
+            # gameid = gameids[0]
+            # game_data = await connection.request('get', '/lol-match-history/v1/games/%s' % gameid)
+            # game_json = await game_data.json()
+            # print(game_json)
             self.data_updated.emit(players)
 
         @connector.close
