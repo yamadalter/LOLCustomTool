@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import QApplication
 from gui import MainWindow  # gui.py から MainWindow をインポート
 import qasync
 
-if __name__ == "__main__":  
+if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()

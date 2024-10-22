@@ -37,9 +37,15 @@ class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
 
+        # initial
         self.history = {}
         self.ver = ''
-        self.ver = self.get_ver()
+        self.get_ver()
+        self.champ_data = ''
+        self.champ_data = self.get_champ_data()
+        self.rune_data = ''
+        self.rune_data = self.get_rune_data()
+
         self.setWindowTitle("LoLチーム分け")
 
         # GUIのレイアウトを構築
@@ -210,14 +216,33 @@ class MainWindow(QWidget):
         self.team_title_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         grid.addWidget(self.team_title_label, row, 0, 1, 12)
 
+        # BAN Champを表示
+        self.ban_title_label = QLabel(f"BANS:")
+        self.ban_title_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        grid.addWidget(self.ban_title_label, row, 4)
+        self.champ_data = self.get_champ_data()
+        for i, champ in enumerate(team.bans):
+            for champion_name, champion_data in self.champ_data['data'].items():
+                if int(champion_data['key']) == champ.championId:
+                    champ.championName = champion_name
+                    res = requests.get(f'http://ddragon.leagueoflegends.com/cdn/{self.ver}/img/champion/{champ.championName}.png')
+                    img = Image.open(BytesIO(res.content))
+                    img = ImageQt(img)
+                    pixmap = QPixmap.fromImage(img)
+                    pixmap = pixmap.scaled(30, 30, Qt.AspectRatioMode.KeepAspectRatio)
+                    champ_label = QLabel()
+                    champ_image = QPixmap(pixmap)  # 画像パスを指定
+                    champ_label.setPixmap(champ_image)
+                    grid.addWidget(champ_label, row, 5 + i)  # 3列目から開始
+
         # 各プレイヤーの情報を表示
-        i = 0
+        j = 0
         for position in ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY']:
             for player in team.participants:
                 if player.position == position:
-                    row_offset = row + i + 1
+                    row_offset = row + j + 1
                     self.display_player(grid, row_offset, player)
-                    i += 1
+                    j += 1
 
     def display_player(self, grid, row, palyer):
 
@@ -394,17 +419,31 @@ class MainWindow(QWidget):
         if self.ver == '':
             ver_res = requests.get('https://ddragon.leagueoflegends.com/api/versions.json')
             ver_data = ver_res.json()
-            return ver_data[0]
+            self.ver = ver_data[0]
+            print(self.ver)
+
+    def get_champ_data(self):
+        if self.champ_data == '':
+            res = requests.get(f'https://ddragon.leagueoflegends.com/cdn/{self.ver}/data/ja_JP/champion.json')
+            print(f'https://ddragon.leagueoflegends.com/cdn/{self.ver}/data/ja_JP/champion.json')
+            champ_data = res.json()
+            return champ_data
         else:
-            return self.ver
+            return self.champ_data
+
+    def get_rune_data(self):
+        if self.rune_data == '':
+            res = requests.get(f'https://ddragon.leagueoflegends.com/cdn/{self.ver}/data/ja_JP/runesReforged.json')
+            rune_data = res.json()
+            return rune_data
+        else:
+            return self.rune_data
 
     def set_champion_name(self, participants):
-        ver = self.get_ver()
-        print(f'https://ddragon.leagueoflegends.com/cdn/{ver}/data/ja_JP/champion.json')
-        champ_res = requests.get(f'https://ddragon.leagueoflegends.com/cdn/{ver}/data/ja_JP/champion.json')
-        champ_data = champ_res.json()
+        self.get_ver()
+        self.champ_data = self.get_champ_data()
         for participant in participants:
-            for champion_name, champion_data in champ_data['data'].items():
+            for champion_name, champion_data in self.champ_data['data'].items():
                 if int(champion_data['key']) == participant.championId:
                     participant.championName = champion_name
 
@@ -436,9 +475,8 @@ class MainWindow(QWidget):
         return matchdata
         
     def get_rune_image(self, palyer):
-        ver = self.get_ver()
-        rune_res = requests.get(f'https://ddragon.leagueoflegends.com/cdn/{ver}/data/ja_JP/runesReforged.json')
-        rune_data = rune_res.json()
+        self.get_ver()
+        rune_data = self.get_rune_data()
         rune_paths = ['', '']
         for rune in rune_data:
             if int(rune['id']) == palyer.stats['perkPrimaryStyle']:
@@ -461,8 +499,8 @@ class MainWindow(QWidget):
         return rune_images
 
     def get_champ_image(self, champ):
-        ver = self.get_ver()
-        response = requests.get(f'http://ddragon.leagueoflegends.com/cdn/{ver}/img/champion/{champ}.png')
+        self.get_ver()
+        response = requests.get(f'http://ddragon.leagueoflegends.com/cdn/{self.ver}/img/champion/{champ}.png')
         img = Image.open(BytesIO(response.content))
         img = ImageQt(img)
         pixmap = QPixmap.fromImage(img)
@@ -470,12 +508,12 @@ class MainWindow(QWidget):
         return pixmap
 
     def get_item_images(self, player):
-        ver = self.get_ver()
+        self.get_ver()
         items = [player.stats[f'item{i}'] for i in range(6)]
         items_images = []
         for item in items:
             if not item == 0:
-                response = requests.get(f'http://ddragon.leagueoflegends.com/cdn/{ver}/img/item/{item}.png')
+                response = requests.get(f'http://ddragon.leagueoflegends.com/cdn/{self.ver}/img/item/{item}.png')
                 img = Image.open(BytesIO(response.content))
                 img = ImageQt(img)
                 pixmap = QPixmap.fromImage(img)
