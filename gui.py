@@ -217,7 +217,7 @@ class MainWindow(QWidget):
         grid.addWidget(self.team_title_label, row, 0, 1, 12)
 
         # BAN Champを表示
-        self.ban_title_label = QLabel(f"BANS:")
+        self.ban_title_label = QLabel("BANS:")
         self.ban_title_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         grid.addWidget(self.ban_title_label, row, 4)
         self.champ_data = self.get_champ_data()
@@ -409,6 +409,18 @@ class MainWindow(QWidget):
         # クリップボードにコピー
         QApplication.clipboard().setText(team1_text + "\n" + team2_text)
 
+    def copy_to_clipboard_opgg(self):
+        team1_text = "チーム1----\n"
+        for i in range(self.team1_list.count()):
+            team1_text += self.team1_list.item(i).text().split(' (')[0] + "\n"
+
+        team2_text = "チーム2----\n"
+        for i in range(self.team2_list.count()):
+            team2_text += self.team2_list.item(i).text().split(' (')[0] + "\n"
+
+        # クリップボードにコピー
+        QApplication.clipboard().setText(team1_text + "\n" + team2_text)
+
     def set_positions(self, team, positions):
         for participant in team.participants:
             for k, v in positions.items():
@@ -469,9 +481,7 @@ class MainWindow(QWidget):
             else:
                 positions = get_roles(champion_roles, champions, jungle=smite)
             self.set_positions(team, positions)
-        
         self.set_champion_name(matchdata.participants)
-
         return matchdata
         
     def get_rune_image(self, palyer):
