@@ -91,6 +91,8 @@ class MainWindow(QWidget):
         team_layout = QVBoxLayout()
         self.team1_list = QListWidget()
         self.team2_list = QListWidget()
+        self.team1_player = []
+        self.team2_player = []
         team_layout.addWidget(self.team1_list)
         team_layout.addWidget(self.team2_list)
 
@@ -126,6 +128,9 @@ class MainWindow(QWidget):
         self.copy_button = QPushButton("結果コピー")
         self.copy_button.clicked.connect(self.copy_to_clipboard)
         button_layout.addWidget(self.copy_button)
+        self.copy_button_opgg = QPushButton("結果コピー(opgg)")
+        self.copy_button_opgg.clicked.connect(self.copy_to_clipboard_opgg)
+        button_layout.addWidget(self.copy_button_opgg)
         teamsplit_layout.addLayout(button_layout)  # ボタンレイアウトを追加
 
         # 試合結果取得ボタン
@@ -283,6 +288,7 @@ class MainWindow(QWidget):
 
     def add_players_to_list(self, players):
         if players:
+            self.players = players
             for player in players:
                 if player not in self.player_list.players:
                     item = QListWidgetItem(f"{player['name']} ({player['rank']})")
@@ -322,12 +328,16 @@ class MainWindow(QWidget):
         # 結果をリストに表示
         self.team1_list.clear()
         self.team2_list.clear()
+        self.team1_player = []
+        self.team2_player = []
         for player in team1:
             item = QListWidgetItem(f"{player['name']} ({player['rank']})")
             self.team1_list.addItem(item)
+            self.team1_player.append(player)
         for player in team2:
             item = QListWidgetItem(f"{player['name']} ({player['rank']})")
             self.team2_list.addItem(item)
+            self.team2_player.append(player)
 
         # 差分を計算
         self.show_diff(team1, team2)
@@ -399,24 +409,36 @@ class MainWindow(QWidget):
 
     def copy_to_clipboard(self):
         team1_text = "チーム1----\n"
-        for i in range(self.team1_list.count()):
-            team1_text += self.team1_list.item(i).text().split(' (')[0] + "\n"
+        for player in self.team1_player:
+            team1_text += player['name'] + "\n"
 
         team2_text = "チーム2----\n"
-        for i in range(self.team2_list.count()):
-            team2_text += self.team2_list.item(i).text().split(' (')[0] + "\n"
+        for player in self.team2_player:
+            team2_text += player['name'] + "\n"
 
         # クリップボードにコピー
         QApplication.clipboard().setText(team1_text + "\n" + team2_text)
 
     def copy_to_clipboard_opgg(self):
+        name1_list = []
         team1_text = "チーム1----\n"
-        for i in range(self.team1_list.count()):
-            team1_text += self.team1_list.item(i).text().split(' (')[0] + "\n"
+        for player in self.team1_player:
+            team1_text += player['name'] + "\n"
+            name = player['name'].replace(' ', '+')
+            tag = player['tag']
+            name1_list.append(f'{name}%23{tag}')
+        name1 = '%2C'.join(name1_list)
+        team1_text += f'https://www.op.gg/multisearch/jp?summoners={name1}'
 
+        name2_list = []
         team2_text = "チーム2----\n"
-        for i in range(self.team2_list.count()):
-            team2_text += self.team2_list.item(i).text().split(' (')[0] + "\n"
+        for player in self.team2_player:
+            team2_text += player['name'] + "\n"
+            name = player['name'].replace(' ', '+')
+            tag = player['tag']
+            name2_list.append(f'{name}%23{tag}')
+        name2 = '%2C'.join(name2_list)
+        team2_text += f'https://www.op.gg/multisearch/jp?summoners={name2}'
 
         # クリップボードにコピー
         QApplication.clipboard().setText(team1_text + "\n" + team2_text)

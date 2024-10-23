@@ -30,13 +30,14 @@ class WorkerThread(QThread):
                     summoner = await connection.request('get', '/lol-summoner/v2/summoners/puuid/%s' % puuid)
                     summoner = await summoner.json()
                     name = summoner['gameName']
+                    tag = summoner['tagLine']
                     rank_data = await connection.request('get', '/lol-ranked/v1/ranked-stats/%s' % puuid)
                     rank_json = await rank_data.json()
                     soloq = rank_json['queueMap']['RANKED_SOLO_5x5']
                     tier = soloq['previousSeasonHighestTier']
                     div = soloq['previousSeasonHighestDivision']
                     rank = f'{tier} {div}' if div != 'NA' else tier
-                    players.append({'name': name, 'rank': rank})
+                    players.append({'name': name, 'rank': rank, 'tag': tag})
                     rank_json = await rank_data.json()
 
                 self.data_updated.emit(players)
