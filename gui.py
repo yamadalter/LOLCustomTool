@@ -1,7 +1,8 @@
 import random
-import cassiopeia as cass
+import json
 import requests
 import datetime
+from datetime import timedelta
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -17,7 +18,6 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QSpinBox,
     QInputDialog,
-    QTextEdit,
     QApplication,
     QGridLayout
 )
@@ -33,18 +33,33 @@ from PIL import Image
 from PIL.ImageQt import ImageQt
 
 
+class CustomEncoder(json.JSONEncoder):
+    def default(self, obj):
+        print(obj)
+        print(isinstance(obj, type))
+        # print(obj.__name__)
+        if hasattr(obj, 'isoformat'):  # Arrowオブジェクトはisoformat()メソッドを持つ
+            return obj.isoformat()
+        elif isinstance(obj, type) and obj.__name__.startswith('Side.'):  # Side.blueのようなオブジェクトを処理
+            return obj.__name__.split('.')[-1]  # "blue" のみを返す
+        elif isinstance(obj, timedelta):
+            return str(obj)  # 文字列に変換
+        return super().default(obj)  # その他のオブジェクトはデフォルトの処理
+
+
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
 
         # initial
         self.history = {}
-        self.ver = ''
+        self.ver = None
         self.get_ver()
-        self.champ_data = ''
+        self.champ_data = None
         self.champ_data = self.get_champ_data()
-        self.rune_data = ''
+        self.rune_data = None
         self.rune_data = self.get_rune_data()
+        self.gamme_data = None
 
         self.setWindowTitle("LoLチーム分け")
 
@@ -107,7 +122,7 @@ class MainWindow(QWidget):
         tolerance_layout.addWidget(QLabel("許容ランク誤差:"))
         self.tolerance_spinbox = QSpinBox()
         self.tolerance_spinbox.setRange(0, 100)  # 許容範囲を設定
-        self.tolerance_spinbox.setValue(10)  # デフォルト値を設定 (必要に応じて変更)
+        self.tolerance_spinbox.setValue(5)  # デフォルト値を設定 (必要に応じて変更)
         tolerance_layout.addWidget(self.tolerance_spinbox)
         teamsplit_layout.addLayout(tolerance_layout)
 
@@ -134,8 +149,10 @@ class MainWindow(QWidget):
         teamsplit_layout.addLayout(button_layout)  # ボタンレイアウトを追加
 
         # 試合結果取得ボタン
+        result_button_layout = QHBoxLayout()
         self.get_game_results_button = QPushButton("試合結果取得")
         self.get_game_results_button.clicked.connect(self.get_game_history)
+        result_button_layout.addWidget(self.get_game_results_button)
 
         # 試合履歴取得用のワーカースレッド
         self.history_worker_thread = WorkerThread()
@@ -144,11 +161,16 @@ class MainWindow(QWidget):
         # ゲームID選択用のコンボボックス
         self.game_id_combobox = QComboBox()
         self.game_id_combobox.currentIndexChanged.connect(self.game_id_selected)  # コンボボックスの選択変更時の処理
+        result_button_layout.addWidget(self.game_id_combobox)
+
+        # 試合結果を出力するボタン
+        self.result_output_button = QPushButton("結果出力")
+        self.result_output_button.clicked.connect(self.output_result)
+        result_button_layout.addWidget(self.result_output_button)
 
         # 取得結果表示
         game_results_outer_layout = QVBoxLayout()
-        game_results_outer_layout.addWidget(self.get_game_results_button)
-        game_results_outer_layout.addWidget(self.game_id_combobox)  # コンボボックスを追加
+        game_results_outer_layout.addLayout(result_button_layout)
 
         # 試合結果表示エリア
         game_results_group = QGroupBox("試合結果")
@@ -197,13 +219,13 @@ class MainWindow(QWidget):
             for i in reversed(range(self.game_result_grid.count())): 
                 self.game_result_grid.itemAt(i).widget().setParent(None)
             # タイトルを表示
-            data = self.get_game_data(self.history[int(selected_game_id)])
-            td = datetime.timedelta(seconds=data.gameDuration)
+            self.game_data = self.get_game_data(self.history[int(selected_game_id)])
+            td = datetime.timedelta(seconds=self.game_data.gameDuration)
             self.title_label = QLabel(f"Summoner's Rift ({td})")
             self.title_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
             self.game_result_grid.addWidget(self.title_label, 0, 0, 1, 11)
             # 勝者と敗者を分けて表示
-            for team in data.teams:
+            for team in self.game_data.teams:
                 if team.isWinner == 'Win':
                     self.display_team(self.game_result_grid, 1, "Winners", team)  # 2行目から開始
                 else:
@@ -384,9 +406,6 @@ class MainWindow(QWidget):
         current_data = item.data(Qt.ItemDataRole.UserRole)
 
         # 変更内容を入力するためのダイアログを表示
-        new_name, ok_pressed = QInputDialog.getText(self, "プレイヤー名変更", "新しいプレイヤー名:", QLineEdit.EchoMode.Normal, current_data["name"])
-        if not ok_pressed:
-            return
         if current_data["rank"] == '':
             new_rank, ok_pressed = QInputDialog.getItem(self, "ランク変更", "新しいランク:", RANKS, RANKS.index('SILVER IV'), False)
         else:
@@ -395,8 +414,8 @@ class MainWindow(QWidget):
             return
 
         # プレイヤー情報を更新
-        item.setText(f"{new_name} ({new_rank})")
-        item.setData(Qt.ItemDataRole.UserRole, {"name": new_name, "rank": new_rank})
+        item.setText(f"{current_data["name"]} ({new_rank})")
+        item.setData(Qt.ItemDataRole.UserRole, {"name": current_data["name"], "rank": new_rank, "tag": current_data["tag"]})
 
     def delete_player(self):
         selected_items = self.player_list.selectedItems()
@@ -450,14 +469,14 @@ class MainWindow(QWidget):
                     participant.position = k
 
     def get_ver(self):
-        if self.ver == '':
+        if self.ver is None:
             ver_res = requests.get('https://ddragon.leagueoflegends.com/api/versions.json')
             ver_data = ver_res.json()
             self.ver = ver_data[0]
             print(self.ver)
 
     def get_champ_data(self):
-        if self.champ_data == '':
+        if self.champ_data is None:
             res = requests.get(f'https://ddragon.leagueoflegends.com/cdn/{self.ver}/data/ja_JP/champion.json')
             print(f'https://ddragon.leagueoflegends.com/cdn/{self.ver}/data/ja_JP/champion.json')
             champ_data = res.json()
@@ -466,7 +485,7 @@ class MainWindow(QWidget):
             return self.champ_data
 
     def get_rune_data(self):
-        if self.rune_data == '':
+        if self.rune_data is None:
             res = requests.get(f'https://ddragon.leagueoflegends.com/cdn/{self.ver}/data/ja_JP/runesReforged.json')
             rune_data = res.json()
             return rune_data
@@ -505,7 +524,7 @@ class MainWindow(QWidget):
             self.set_positions(team, positions)
         self.set_champion_name(matchdata.participants)
         return matchdata
-        
+
     def get_rune_image(self, palyer):
         self.get_ver()
         rune_data = self.get_rune_data()
@@ -556,3 +575,8 @@ class MainWindow(QWidget):
                 pixmap = pixmap.scaled(30, 30, Qt.AspectRatioMode.KeepAspectRatio)
                 items_images.append(pixmap)
         return items_images
+
+    def output_result(self):
+        d = self.game_data.to_dict()
+        with open('output.json', 'w') as f:
+            json.dump(d, f, cls=CustomEncoder, indent=4)

@@ -20,6 +20,7 @@ class WorkerThread(QThread):
         @connector.ready
         async def connect(connection):
 
+            # lobby情報の取得
             if self.mode == "lobby":
                 lobby = await connection.request('get', '/lol-lobby/v2/lobby/members')
                 lobby_data = await lobby.json()
@@ -42,6 +43,7 @@ class WorkerThread(QThread):
 
                 self.data_updated.emit(players)
 
+            # 試合結果履歴の取得
             elif self.mode == "history":
                 summoner = await connection.request('get', '/lol-summoner/v1/current-summoner/')
                 summoner = await summoner.json()
