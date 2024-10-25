@@ -1,4 +1,5 @@
 RANK_VAL = {
+    "UNRANKED": 0,
     "IRON IV": 1,
     "IRON III": 2,
     "IRON II": 3,
@@ -33,6 +34,7 @@ RANK_VAL = {
 }
 
 RANKS = [
+    "UNRANKED",
     "IRON IV",
     "IRON III",
     "IRON II",
@@ -65,3 +67,5 @@ RANKS = [
     "GRANDMASTER",
     "CHALLENGER",
 ]
+
+ROLES = ['top', 'jg', 'mid', 'bot', 'sup']
