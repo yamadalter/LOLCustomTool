@@ -3,6 +3,7 @@ import json
 import requests
 import datetime
 from datetime import timedelta
+from itertools import combinations, product
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -14,17 +15,18 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMessageBox,
-    QAbstractItemView,
     QGroupBox,
     QSpinBox,
     QInputDialog,
     QApplication,
-    QGridLayout
+    QGridLayout,
+    QCheckBox,
+    QMenu
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QPoint
 from PyQt6.QtGui import QPixmap
-from common import RANK_VAL, RANKS
-from lcu_worker import WorkerThread  # lcu_worker.py から WorkerThread をインポート
+from common import RANK_VAL, RANKS, ROLES
+from lcu_worker import WorkerThread, PlayerData  # lcu_worker.py から WorkerThread をインポート
 from roleidentification import pull_data
 from cassiopeia.core.match import MatchData
 from roleidentification.get_roles import get_roles
@@ -84,22 +86,13 @@ class MainWindow(QWidget):
 
         # プレイヤー情報表示エリア
         player_group = QGroupBox("プレイヤー")
-        player_layout = QVBoxLayout()
-        self.player_list = QListWidget()
-        self.player_list.players = []
-        self.player_list.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
-        player_layout.addWidget(self.player_list)
-        player_group.setLayout(player_layout)
+        player_group.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)  # Apply to parent
+        player_group.customContextMenuRequested.connect(self.show_context_menu)  # Connect to parent
+        self.player_grid = QGridLayout()
+        self.player_grid_init()
+        self.player_list = []
+        player_group.setLayout(self.player_grid)
         teamsplit_layout.addWidget(player_group)
-
-        # プレイヤー情報変更・削除ボタン
-        self.change_player_button = QPushButton("変更")
-        self.change_player_button.clicked.connect(self.change_player)
-        input_layout.addWidget(self.change_player_button)
-
-        self.delete_player_button = QPushButton("削除")
-        self.delete_player_button.clicked.connect(self.delete_player)
-        input_layout.addWidget(self.delete_player_button)
 
         # チーム分け結果表示エリア
         team_group = QGroupBox("チーム分け結果")
@@ -194,6 +187,70 @@ class MainWindow(QWidget):
         # 試合履歴取得用のワーカースレッド
         self.history_worker_thread = WorkerThread()
         self.history_worker_thread.history_updated.connect(self.display_game_history)
+
+    def player_grid_init(self):
+        for col, label_text in enumerate(("参加", "NAME", "RANK", "TOP", "JG", "MID", "BOT", "SUP")):
+            self.player_grid.addWidget(QLabel(label_text), 0, col)
+            self.player_grid.setColumnStretch(col, 1)
+
+    def show_context_menu(self, pos: QPoint):
+        """プレイヤー情報表示エリアの右クリックメニューを表示"""
+        global_pos = self.player_grid.parentWidget().mapToGlobal(pos)
+        menu = QMenu(self)
+        delete_action = menu.addAction("削除")
+        roll_action = menu.addAction("全選択")
+        action = menu.exec(global_pos)
+        if action == delete_action:
+            for row in range(self.player_grid.rowCount()):
+                for col in range(self.player_grid.columnCount()):
+                    item = self.player_grid.itemAtPosition(row, col)
+                    if item is not None:
+                        widget = item.widget()
+                        if widget.geometry().contains(pos):
+                            self.delete_row(row)  # Delete the row
+                            return  # Stop searching after deleting
+                        
+        if action == roll_action:
+            for row in range(self.player_grid.rowCount()):
+                for col in range(self.player_grid.columnCount()):
+                    item = self.player_grid.itemAtPosition(row, col)
+                    if item is not None:
+                        widget = item.widget()
+                        if widget.geometry().contains(pos):
+                            self.check_all_roles(row)  # Delete the row
+                            return  # Stop searching after deleting
+
+    def delete_row(self, row):
+        """指定された行を削除"""
+        if 0 <= row < self.player_grid.rowCount():
+            # グリッドレイアウトからプレイヤー名を取得
+            item = self.player_grid.itemAtPosition(row, 1)  # 1列目はプレイヤー名
+            if item:
+                player_name_widget = item.widget()
+                player_name = player_name_widget.text()
+
+                # player_list から対応するプレイヤーを削除
+                self.player_list = [player for player in self.player_list if player.name != player_name]
+
+            # グリッドレイアウトからウィジェットを削除
+            for col in range(self.player_grid.columnCount()):
+                item = self.player_grid.itemAtPosition(row, col)
+                if item:
+                    widget = item.widget()
+                    self.player_grid.removeWidget(widget)
+                    widget.deleteLater()
+
+            # グリッドレイアウトの行数を調整
+            self.player_grid.setRowStretch(self.player_grid.rowCount() - 1, 0)
+
+    def check_all_roles(self, row):
+        """指定された行のロールを選択状態にする"""
+        if 0 <= row < self.player_grid.rowCount():
+            for col in range(3, self.player_grid.columnCount()):
+                item = self.player_grid.itemAtPosition(row, col)
+                if item:
+                    widget = item.widget()
+                    widget.setChecked(True)
 
     def lobby_worker(self):
         self.lobby_worker_thread.mode = "lobby"
@@ -308,90 +365,148 @@ class MainWindow(QWidget):
             item_label.setPixmap(item_image)
             grid.addWidget(item_label, row, 5 + j)  # 4列目から開始
 
+    def add_player_gui(self, player, row):
+
+        player.attend_check = QCheckBox('')
+        player.attend_check.setChecked(True)
+        self.player_grid.addWidget(player.attend_check, row, 0)
+        self.player_grid.addWidget(QLabel(f"{player.name}"), row, 1)
+
+        player.rank_combobox = QComboBox()
+        player.rank_combobox.addItems(RANKS)
+        player.rank_combobox.setCurrentText(player.rank)
+        self.player_grid.addWidget(player.rank_combobox, row, 2)
+
+        for col, role in enumerate(ROLES, start=3):
+            setattr(player, role, QCheckBox(''))
+            self.player_grid.addWidget(getattr(player, role), row, col)
+
+        self.player_list.append(player)
+
     def add_players_to_list(self, players):
-        if players:
-            self.players = players
-            for player in players:
-                if player not in self.player_list.players:
-                    item = QListWidgetItem(f"{player['name']} ({player['rank']})")
-                    item.setData(Qt.ItemDataRole.UserRole, player)
-                    self.player_list.addItem(item)
-                    self.player_list.players.append(player)
+        for row, player in enumerate(players, start=self.player_grid.rowCount()):
+            if not any(p.name == player.name for p in self.player_list):
+                self.add_player_gui(player, row)
 
     def add_player(self):
         name = self.player_name_input.text()
         rank = self.rank_combobox.currentText()
+        row = self.player_grid.rowCount()
         if not name:
             QMessageBox.warning(self, "エラー", "プレイヤー名を入力してください。")
             return
-        item = QListWidgetItem(f"{name} ({rank})")
-        item.setData(Qt.ItemDataRole.UserRole, {"name": name, "rank": rank})
-        self.player_list.addItem(item)
+        player = PlayerData()
+        player.name = name
+        player.rank = rank
+        player.tag = 'JP1'
+        self.add_player_gui(player, row)
+
+    def show_diff(self, team1, team2):
+        team1_rank = sum(self.rank_to_value(player.rank) for player in team1)
+        team2_rank = sum(self.rank_to_value(player.rank) for player in team2)
+        diff = abs(team1_rank - team2_rank)
+        # ラベルにランク差を表示
+        self.diff_label.setText(f"チームのランク差: {diff}")
 
     def divide_teams(self):
-        players = []
-        for i in range(self.player_list.count()):
-            item = self.player_list.item(i)
-            if item.isSelected():
-                players.append(item.data(Qt.ItemDataRole.UserRole))
+        attend_players = []
+        for player in self.player_list:
+            player.rank = player.rank_combobox.currentText()
+            if player.attend_check.isChecked():
+                attend_players.append(player)
 
-        if len(players) < 2:
-            QMessageBox.warning(self, "エラー", "チーム分けには2人以上のプレイヤーが必要です。")
-            return
-
-        if len(players) % 2 != 0:
-            QMessageBox.warning(self, "エラー", "チーム分けには偶数人数のプレイヤーが必要です。")
+        if len(attend_players) != 10:
+            QMessageBox.warning(self, "エラー", "チーム分けには10人のプレイヤーが必要です。")
             return
 
         # チーム分けを実行
         tolerance = self.tolerance_spinbox.value()
-        team1, team2 = self.perform_team_division(players, tolerance)
+        team1, team2 = self.perform_team_division(attend_players, tolerance)
+        
+        if team1 is not None or team2 is not None:
+            # 結果をリストに表示
+            self.team1_list.clear()
+            self.team2_list.clear()
+            self.team1_player = []
+            self.team2_player = []
+            for player, role in zip(team1, ROLES):
+                item = QListWidgetItem(f"{role}: {player.name} ({player.rank})")
+                self.team1_list.addItem(item)
+                self.team1_player.append(player)
+            for player, role in zip(team2, ROLES):
+                item = QListWidgetItem(f"{role}: {player.name} ({player.rank})")
+                self.team2_list.addItem(item)
+                self.team2_player.append(player)
 
-        # 結果をリストに表示
-        self.team1_list.clear()
-        self.team2_list.clear()
-        self.team1_player = []
-        self.team2_player = []
-        for player in team1:
-            item = QListWidgetItem(f"{player['name']} ({player['rank']})")
-            self.team1_list.addItem(item)
-            self.team1_player.append(player)
-        for player in team2:
-            item = QListWidgetItem(f"{player['name']} ({player['rank']})")
-            self.team2_list.addItem(item)
-            self.team2_player.append(player)
-
-        # 差分を計算
-        self.show_diff(team1, team2)
+            # 差分を計算
+            self.show_diff(team1, team2)
 
     def perform_team_division(self, players, tolerance):
+        # プレイヤーのロール情報を辞書にまとめる
+        roles = {'top': [], 'jg': [], 'mid': [], 'bot': [], 'sup': []}
         for player in players:
-            player["rank_value"] = RANK_VAL[player["rank"]]
+            player.rank_val = RANK_VAL[player.rank]  # ランク値を追加
+            for role in roles:
+                if getattr(player, role).isChecked():
+                    roles[role].append(player)
 
-        # ランク差が許容範囲内になるまでチーム分けを繰り返す
-        team1_total_rank = 9999
-        team2_total_rank = 0
-        while abs(team1_total_rank - team2_total_rank) > tolerance:
-            random.shuffle(players)
-            n = len(players) // 2
-            team1 = players[:n]
-            team2 = players[n:]
-            team1_total_rank = 0
-            team2_total_rank = 0
-            for player in team1:
-                team1_total_rank += player["rank_value"]
+        # 各ロールのプレイヤー数を表示 (デバッグ用)
+        for role, player_list in roles.items():
+            if len(player_list) < 2:
+                QMessageBox.warning(self, "エラー", f"{role}のプレイヤー数は2人以上である必要があります")
+                return None, None
 
-            for player in team2:
-                team2_total_rank += player["rank_value"]
+        valid_teams = self.create_teams(players)
 
-        return team1, team2
+        if len(valid_teams) > 0:
+            for team1, team2 in valid_teams:
+                # ランク差が許容範囲内になるまでチームメンバーを調整
+                team1_total_rank = sum(player.rank_val for player in team1)
+                team2_total_rank = sum(player.rank_val for player in team2)
+                diff = abs(team1_total_rank - team2_total_rank)
+                if diff <= tolerance:
+                    assignments = self.assign_roles(team1)
+                    team1 = random.choice(assignments)
+                    assignments = self.assign_roles(team2)
+                    team2 = random.choice(assignments)
+                    return team1, team2
 
-    def show_diff(self, team1, team2):
-        team1_rank = sum(self.rank_to_value(player["rank"]) for player in team1)
-        team2_rank = sum(self.rank_to_value(player["rank"]) for player in team2)
-        diff = abs(team1_rank - team2_rank)
-        # ラベルにランク差を表示
-        self.diff_label.setText(f"チームのランク差: {diff}")
+        return None, None
+
+    def create_teams(self, players):
+        """
+        複数のロールを選択しているプレイヤーを2つのチームに分割する関数
+
+        Args:
+        players: 各プレイヤーが選択したロールを表すオブジェクトのリスト。
+                    各プレイヤーオブジェクトは、選択したロールの属性がTrueになります。
+
+        Returns:
+        2つのチームの可能な組み合わせのリスト。各チームは、各ロールのプレイヤーが1人ずつ含まれています。
+        """
+        n = len(players) // 2
+        all_combinations = combinations(players, n)
+        valid_teams = []
+        roles = ROLES
+        for team1 in all_combinations:
+            team2 = [player for player in players if player not in team1]
+            # チーム1がすべてのロールを持っているか確認する
+            has_all_roles_team1 = all(any(getattr(player, role).isChecked() for player in team1) for role in roles)
+            # チーム2がすべてのロールを持っているか確認する
+            has_all_roles_team2 = all(any(getattr(player, role).isChecked() for player in team2) for role in roles)
+            if has_all_roles_team1 and has_all_roles_team2:
+                valid_teams.append((team1, team2))
+        return valid_teams
+
+    def assign_roles(self, team):
+        combinations = []
+        role_assignments = [[player for player in team if getattr(player, role).isChecked()] for role in ROLES]
+        for combination in product(*role_assignments):
+            # 重複がない組み合わせのみ追加
+            if len(set(combination)) == len(combination):
+                combinations.append(combination)
+
+        return combinations
 
     def rank_to_value(self, rank):
         return RANK_VAL[rank]
@@ -406,16 +521,16 @@ class MainWindow(QWidget):
         current_data = item.data(Qt.ItemDataRole.UserRole)
 
         # 変更内容を入力するためのダイアログを表示
-        if current_data["rank"] == '':
+        if current_data.rank == '':
             new_rank, ok_pressed = QInputDialog.getItem(self, "ランク変更", "新しいランク:", RANKS, RANKS.index('SILVER IV'), False)
         else:
-            new_rank, ok_pressed = QInputDialog.getItem(self, "ランク変更", "新しいランク:", RANKS, RANKS.index(current_data["rank"]), False)
+            new_rank, ok_pressed = QInputDialog.getItem(self, "ランク変更", "新しいランク:", RANKS, RANKS.index(current_data.rank), False)
         if not ok_pressed:
             return
 
         # プレイヤー情報を更新
-        item.setText(f"{current_data["name"]} ({new_rank})")
-        item.setData(Qt.ItemDataRole.UserRole, {"name": current_data["name"], "rank": new_rank, "tag": current_data["tag"]})
+        item.setText(f"{current_data.rank} ({new_rank})")
+        item.setData(Qt.ItemDataRole.UserRole, {"name": current_data.name, "rank": new_rank, "tag": current_data.tag})
 
     def delete_player(self):
         selected_items = self.player_list.selectedItems()
@@ -429,11 +544,11 @@ class MainWindow(QWidget):
     def copy_to_clipboard(self):
         team1_text = "チーム1----\n"
         for player in self.team1_player:
-            team1_text += player['name'] + "\n"
+            team1_text += f'{player.role}: {player.name}\n'
 
         team2_text = "チーム2----\n"
         for player in self.team2_player:
-            team2_text += player['name'] + "\n"
+            team2_text += f'{player.role}: {player.name}\n'
 
         # クリップボードにコピー
         QApplication.clipboard().setText(team1_text + "\n" + team2_text)
@@ -442,9 +557,9 @@ class MainWindow(QWidget):
         name1_list = []
         team1_text = "チーム1----\n"
         for player in self.team1_player:
-            team1_text += player['name'] + "\n"
-            name = player['name'].replace(' ', '+')
-            tag = player['tag']
+            team1_text += f'{player.role}: {player.name}\n'
+            name = player.name.replace(' ', '+')
+            tag = player.tag
             name1_list.append(f'{name}%23{tag}')
         name1 = '%2C'.join(name1_list)
         team1_text += f'https://www.op.gg/multisearch/jp?summoners={name1}'
@@ -452,9 +567,9 @@ class MainWindow(QWidget):
         name2_list = []
         team2_text = "チーム2----\n"
         for player in self.team2_player:
-            team2_text += player['name'] + "\n"
-            name = player['name'].replace(' ', '+')
-            tag = player['tag']
+            team2_text += f'{player.role}: {player.name}\n'
+            name = player.name.replace(' ', '+')
+            tag = player.tag
             name2_list.append(f'{name}%23{tag}')
         name2 = '%2C'.join(name2_list)
         team2_text += f'https://www.op.gg/multisearch/jp?summoners={name2}'
