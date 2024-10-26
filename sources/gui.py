@@ -1,7 +1,9 @@
 import random
 import json
-import requests
 import datetime
+from common import RANK_VAL, RANKS, ROLES
+from datahandler import LoLDataHandler
+from lcu_worker import WorkerThread, PlayerData  # lcu_worker.py から WorkerThread をインポート
 from datetime import timedelta
 from itertools import combinations, product
 from PyQt6.QtWidgets import (
@@ -25,14 +27,6 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QPoint
 from PyQt6.QtGui import QPixmap
-from common import RANK_VAL, RANKS, ROLES
-from lcu_worker import WorkerThread, PlayerData  # lcu_worker.py から WorkerThread をインポート
-from roleidentification import pull_data
-from cassiopeia.core.match import MatchData
-from roleidentification.get_roles import get_roles
-from io import BytesIO
-from PIL import Image
-from PIL.ImageQt import ImageQt
 
 
 class CustomEncoder(json.JSONEncoder):
@@ -55,13 +49,7 @@ class MainWindow(QWidget):
 
         # initial
         self.history = {}
-        self.ver = None
-        self.get_ver()
-        self.champ_data = None
-        self.champ_data = self.get_champ_data()
-        self.rune_data = None
-        self.rune_data = self.get_rune_data()
-        self.gamme_data = None
+        self.handler = LoLDataHandler()
 
         self.setWindowTitle("LoLチーム分け")
 
@@ -220,6 +208,13 @@ class MainWindow(QWidget):
                             self.check_all_roles(row)  # Delete the row
                             return  # Stop searching after deleting
 
+    def show_diff(self, team1, team2):
+        team1_rank = sum(self.rank_to_value(player.rank) for player in team1)
+        team2_rank = sum(self.rank_to_value(player.rank) for player in team2)
+        diff = abs(team1_rank - team2_rank)
+        # ラベルにランク差を表示
+        self.diff_label.setText(f"チームのランク差: {diff}")
+
     def delete_row(self, row):
         """指定された行を削除"""
         if 0 <= row < self.player_grid.rowCount():
@@ -276,7 +271,7 @@ class MainWindow(QWidget):
             for i in reversed(range(self.game_result_grid.count())): 
                 self.game_result_grid.itemAt(i).widget().setParent(None)
             # タイトルを表示
-            self.game_data = self.get_game_data(self.history[int(selected_game_id)])
+            self.game_data = self.handler.get_game_data(self.history[int(selected_game_id)])
             td = datetime.timedelta(seconds=self.game_data.gameDuration)
             self.title_label = QLabel(f"Summoner's Rift ({td})")
             self.title_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -304,15 +299,12 @@ class MainWindow(QWidget):
         self.ban_title_label = QLabel("BANS:")
         self.ban_title_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         grid.addWidget(self.ban_title_label, row, 4)
-        self.champ_data = self.get_champ_data()
+        champ_data = self.handler.get_champ_data()
         for i, champ in enumerate(team.bans):
-            for champion_name, champion_data in self.champ_data['data'].items():
+            for champion_name, champion_data in champ_data['data'].items():
                 if int(champion_data['key']) == champ.championId:
                     champ.championName = champion_name
-                    res = requests.get(f'http://ddragon.leagueoflegends.com/cdn/{self.ver}/img/champion/{champ.championName}.png')
-                    img = Image.open(BytesIO(res.content))
-                    img = ImageQt(img)
-                    pixmap = QPixmap.fromImage(img)
+                    pixmap = self.handler(champion_name)
                     pixmap = pixmap.scaled(30, 30, Qt.AspectRatioMode.KeepAspectRatio)
                     champ_label = QLabel()
                     champ_image = QPixmap(pixmap)  # 画像パスを指定
@@ -341,7 +333,7 @@ class MainWindow(QWidget):
 
         # ルーン画像を表示
         rune_label1 = QLabel()
-        rune_images = self.get_rune_image(palyer)
+        rune_images = self.handler.get_rune_image(palyer)
         rune_image1 = QPixmap(rune_images[0])  # 画像パスを指定
         rune_label1.setPixmap(rune_image1)
         grid.addWidget(rune_label1, row, 2)
@@ -352,13 +344,13 @@ class MainWindow(QWidget):
 
         # チャンピオン画像を表示
         champion_label = QLabel()
-        champ_image = self.get_champ_image(palyer.championName)
+        champ_image = self.handler.get_champ_image(palyer.championName)
         champion_image = QPixmap(champ_image)  # 画像パスを指定
         champion_label.setPixmap(champion_image)
         grid.addWidget(champion_label, row, 4)
 
         # アイテム画像を表示
-        item_images = self.get_item_images(palyer)
+        item_images = self.handler.get_item_images(palyer)
         for j, item_image in enumerate(item_images):
             item_label = QLabel()
             item_image = QPixmap(item_image)  # 画像パスを指定
@@ -401,12 +393,50 @@ class MainWindow(QWidget):
         player.tag = 'JP1'
         self.add_player_gui(player, row)
 
-    def show_diff(self, team1, team2):
-        team1_rank = sum(self.rank_to_value(player.rank) for player in team1)
-        team2_rank = sum(self.rank_to_value(player.rank) for player in team2)
-        diff = abs(team1_rank - team2_rank)
-        # ラベルにランク差を表示
-        self.diff_label.setText(f"チームのランク差: {diff}")
+    def delete_player(self):
+        selected_items = self.player_list.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "エラー", "プレイヤーを選択してください。")
+            return
+
+        for item in selected_items:
+            self.player_list.takeItem(self.player_list.row(item))
+
+    def copy_to_clipboard(self):
+        team1_text = "チーム1----\n"
+        for player in self.team1_player:
+            team1_text += f'{player.role}: {player.name}\n'
+
+        team2_text = "チーム2----\n"
+        for player in self.team2_player:
+            team2_text += f'{player.role}: {player.name}\n'
+
+        # クリップボードにコピー
+        QApplication.clipboard().setText(team1_text + "\n" + team2_text)
+
+    def copy_to_clipboard_opgg(self):
+        name1_list = []
+        team1_text = "チーム1----\n"
+        for player in self.team1_player:
+            team1_text += f'{player.role}: {player.name}\n'
+            name = player.name.replace(' ', '+')
+            tag = player.tag
+            name1_list.append(f'{name}%23{tag}')
+        name1 = '%2C'.join(name1_list)
+        team1_text += f'https://www.op.gg/multisearch/jp?summoners={name1}'
+
+        name2_list = []
+        team2_text = "チーム2----\n"
+        for player in self.team2_player:
+            team2_text += f'{player.role}: {player.name}\n'
+            name = player.name.replace(' ', '+')
+            tag = player.tag
+            name2_list.append(f'{name}%23{tag}')
+        name2 = '%2C'.join(name2_list)
+        team2_text += f'https://www.op.gg/multisearch/jp?summoners={name2}'
+
+        # クリップボードにコピー
+        QApplication.clipboard().setText(team1_text + "\n" + team2_text)
 
     def divide_teams(self):
         attend_players = []
@@ -467,8 +497,12 @@ class MainWindow(QWidget):
                 if diff <= tolerance:
                     assignments = self.assign_roles(team1)
                     team1 = random.choice(assignments)
+                    for player, role in zip(team1, ROLES):
+                        player.role = role
                     assignments = self.assign_roles(team2)
                     team2 = random.choice(assignments)
+                    for player, role in zip(team2, ROLES):
+                        player.role = role
                     return team1, team2
 
         return None, None
@@ -531,165 +565,6 @@ class MainWindow(QWidget):
         # プレイヤー情報を更新
         item.setText(f"{current_data.rank} ({new_rank})")
         item.setData(Qt.ItemDataRole.UserRole, {"name": current_data.name, "rank": new_rank, "tag": current_data.tag})
-
-    def delete_player(self):
-        selected_items = self.player_list.selectedItems()
-        if not selected_items:
-            QMessageBox.warning(self, "エラー", "プレイヤーを選択してください。")
-            return
-
-        for item in selected_items:
-            self.player_list.takeItem(self.player_list.row(item))
-
-    def copy_to_clipboard(self):
-        team1_text = "チーム1----\n"
-        for player in self.team1_player:
-            team1_text += f'{player.role}: {player.name}\n'
-
-        team2_text = "チーム2----\n"
-        for player in self.team2_player:
-            team2_text += f'{player.role}: {player.name}\n'
-
-        # クリップボードにコピー
-        QApplication.clipboard().setText(team1_text + "\n" + team2_text)
-
-    def copy_to_clipboard_opgg(self):
-        name1_list = []
-        team1_text = "チーム1----\n"
-        for player in self.team1_player:
-            team1_text += f'{player.role}: {player.name}\n'
-            name = player.name.replace(' ', '+')
-            tag = player.tag
-            name1_list.append(f'{name}%23{tag}')
-        name1 = '%2C'.join(name1_list)
-        team1_text += f'https://www.op.gg/multisearch/jp?summoners={name1}'
-
-        name2_list = []
-        team2_text = "チーム2----\n"
-        for player in self.team2_player:
-            team2_text += f'{player.role}: {player.name}\n'
-            name = player.name.replace(' ', '+')
-            tag = player.tag
-            name2_list.append(f'{name}%23{tag}')
-        name2 = '%2C'.join(name2_list)
-        team2_text += f'https://www.op.gg/multisearch/jp?summoners={name2}'
-
-        # クリップボードにコピー
-        QApplication.clipboard().setText(team1_text + "\n" + team2_text)
-
-    def set_positions(self, team, positions):
-        for participant in team.participants:
-            for k, v in positions.items():
-                if participant.championId == v:
-                    participant.position = k
-
-    def get_ver(self):
-        if self.ver is None:
-            ver_res = requests.get('https://ddragon.leagueoflegends.com/api/versions.json')
-            ver_data = ver_res.json()
-            self.ver = ver_data[0]
-            print(self.ver)
-
-    def get_champ_data(self):
-        if self.champ_data is None:
-            res = requests.get(f'https://ddragon.leagueoflegends.com/cdn/{self.ver}/data/ja_JP/champion.json')
-            print(f'https://ddragon.leagueoflegends.com/cdn/{self.ver}/data/ja_JP/champion.json')
-            champ_data = res.json()
-            return champ_data
-        else:
-            return self.champ_data
-
-    def get_rune_data(self):
-        if self.rune_data is None:
-            res = requests.get(f'https://ddragon.leagueoflegends.com/cdn/{self.ver}/data/ja_JP/runesReforged.json')
-            rune_data = res.json()
-            return rune_data
-        else:
-            return self.rune_data
-
-    def set_champion_name(self, participants):
-        self.get_ver()
-        self.champ_data = self.get_champ_data()
-        for participant in participants:
-            for champion_name, champion_data in self.champ_data['data'].items():
-                if int(champion_data['key']) == participant.championId:
-                    participant.championName = champion_name
-
-    def get_game_data(self, data):
-        champion_roles = pull_data()
-        data["region"] = 'JP'
-        matchdata = MatchData()
-        matchdata = matchdata(**data)
-        for team in matchdata.teams:
-            champions = [participant.championId for participant in team.participants]
-            smite = None
-            for participant in team.participants:
-                if participant.spell1Id == 11 or participant.spell2Id == 11:
-                    if smite is None:
-                        smite = participant.championId
-                    else:
-                        smite = None
-                for identity in matchdata.participantIdentities:
-                    if participant.participantId == identity['participantId']:
-                        participant.player = identity['player']
-            if smite is None:
-                positions = get_roles(champion_roles, champions)
-            else:
-                positions = get_roles(champion_roles, champions, jungle=smite)
-            self.set_positions(team, positions)
-        self.set_champion_name(matchdata.participants)
-        return matchdata
-
-    def get_rune_image(self, palyer):
-        self.get_ver()
-        rune_data = self.get_rune_data()
-        rune_paths = ['', '']
-        for rune in rune_data:
-            if int(rune['id']) == palyer.stats['perkPrimaryStyle']:
-                for keystne in rune['slots'][0]['runes']:
-                    if int(keystne['id']) == palyer.stats['perk0']:
-                        rune_paths[0] = keystne['icon']
-            if int(rune['id']) == palyer.stats['perkSubStyle']:
-                rune_paths[1] = rune['icon']
-        rune_images = []
-        for i, path in enumerate(rune_paths):
-            rune_res = requests.get(f'https://ddragon.leagueoflegends.com/cdn/img/{path}')
-            img = Image.open(BytesIO(rune_res.content))
-            img = ImageQt(img)
-            pixmap = QPixmap.fromImage(img)
-            if i == 0:
-                pixmap = pixmap.scaled(30, 30, Qt.AspectRatioMode.KeepAspectRatio)
-            else:
-                pixmap = pixmap.scaled(15, 15, Qt.AspectRatioMode.KeepAspectRatio)
-            rune_images.append(pixmap)
-        return rune_images
-
-    def get_champ_image(self, champ):
-        self.get_ver()
-        response = requests.get(f'http://ddragon.leagueoflegends.com/cdn/{self.ver}/img/champion/{champ}.png')
-        img = Image.open(BytesIO(response.content))
-        img = ImageQt(img)
-        pixmap = QPixmap.fromImage(img)
-        pixmap = pixmap.scaled(50, 50, Qt.AspectRatioMode.KeepAspectRatio)
-        return pixmap
-
-    def get_item_images(self, player):
-        self.get_ver()
-        items = [player.stats[f'item{i}'] for i in range(6)]
-        items_images = []
-        for item in items:
-            if not item == 0:
-                response = requests.get(f'http://ddragon.leagueoflegends.com/cdn/{self.ver}/img/item/{item}.png')
-                img = Image.open(BytesIO(response.content))
-                img = ImageQt(img)
-                pixmap = QPixmap.fromImage(img)
-                pixmap = pixmap.scaled(30, 30, Qt.AspectRatioMode.KeepAspectRatio)
-                items_images.append(pixmap)
-            else:
-                pixmap = QPixmap('0.png')
-                pixmap = pixmap.scaled(30, 30, Qt.AspectRatioMode.KeepAspectRatio)
-                items_images.append(pixmap)
-        return items_images
 
     def output_result(self):
         d = self.game_data.to_dict()
