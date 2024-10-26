@@ -5,4 +5,7 @@ dist
 main.spec
 test.*
 .cassiopeia.json
-main.*
+main.dist
+main.exe
+main.build
+main.onefile*
