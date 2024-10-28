@@ -8,6 +8,7 @@ from PIL.ImageQt import ImageQt
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
 
+
 class LoLDataHandler():
     def __init__(self):
         
@@ -85,7 +86,6 @@ class LoLDataHandler():
         img = Image.open(BytesIO(response.content))
         img = ImageQt(img)
         pixmap = QPixmap.fromImage(img)
-        pixmap = pixmap.scaled(50, 50, Qt.AspectRatioMode.KeepAspectRatio)
         return pixmap
 
     def get_item_images(self, player):
@@ -100,7 +100,7 @@ class LoLDataHandler():
                 pixmap = pixmap.scaled(30, 30, Qt.AspectRatioMode.KeepAspectRatio)
                 items_images.append(pixmap)
             else:
-                pixmap = QPixmap('../0.png')
+                pixmap = QPixmap('0.png')
                 pixmap = pixmap.scaled(30, 30, Qt.AspectRatioMode.KeepAspectRatio)
                 items_images.append(pixmap)
         return items_images

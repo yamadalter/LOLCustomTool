@@ -23,10 +23,12 @@ from PyQt6.QtWidgets import (
     QApplication,
     QGridLayout,
     QCheckBox,
+    QFileDialog,
     QMenu
 )
 from PyQt6.QtCore import Qt, QPoint
 from PyQt6.QtGui import QPixmap
+
 
 
 class CustomEncoder(json.JSONEncoder):
@@ -72,8 +74,21 @@ class MainWindow(QWidget):
         input_layout.addWidget(self.add_player_button)
         teamsplit_layout.addLayout(input_layout)
 
+        # プレイヤー辞書エリア
+        dict_layout = QHBoxLayout()
+        dict_layout.addWidget(QLabel("Player info:"))
+        self.save_dict_button = QPushButton("SAVE")
+        self.save_dict_button.clicked.connect(self.save_dict_to_file)
+        dict_layout.addWidget(self.save_dict_button)
+        self.load_dict_button = QPushButton("LOAD")
+        self.load_dict_button.clicked.connect(self.load_dict_from_file)
+        dict_layout.addWidget(self.load_dict_button)
+        dict_layout.addSpacing(300)
+        teamsplit_layout.addLayout(dict_layout)
+
         # プレイヤー情報表示エリア
         player_group = QGroupBox("プレイヤー")
+        player_group.setMinimumSize(300, 100)
         player_group.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)  # Apply to parent
         player_group.customContextMenuRequested.connect(self.show_context_menu)  # Connect to parent
         self.player_grid = QGridLayout()
@@ -84,7 +99,7 @@ class MainWindow(QWidget):
 
         # チーム分け結果表示エリア
         team_group = QGroupBox("チーム分け結果")
-        team_layout = QVBoxLayout()
+        team_layout = QHBoxLayout()
         self.team1_list = QListWidget()
         self.team2_list = QListWidget()
         self.team1_player = []
@@ -188,25 +203,17 @@ class MainWindow(QWidget):
         delete_action = menu.addAction("削除")
         roll_action = menu.addAction("全選択")
         action = menu.exec(global_pos)
-        if action == delete_action:
-            for row in range(self.player_grid.rowCount()):
-                for col in range(self.player_grid.columnCount()):
-                    item = self.player_grid.itemAtPosition(row, col)
-                    if item is not None:
-                        widget = item.widget()
-                        if widget.geometry().contains(pos):
+        for row in range(self.player_grid.rowCount()):
+            for col in range(self.player_grid.columnCount()):
+                item = self.player_grid.itemAtPosition(row, col)
+                if item is not None:
+                    widget = item.widget()
+                    if widget.geometry().contains(pos):
+                        if action == delete_action:
                             self.delete_row(row)  # Delete the row
-                            return  # Stop searching after deleting
-                        
-        if action == roll_action:
-            for row in range(self.player_grid.rowCount()):
-                for col in range(self.player_grid.columnCount()):
-                    item = self.player_grid.itemAtPosition(row, col)
-                    if item is not None:
-                        widget = item.widget()
-                        if widget.geometry().contains(pos):
+                        elif action == roll_action:
                             self.check_all_roles(row)  # Delete the row
-                            return  # Stop searching after deleting
+                        return  # Stop searching after deleting
 
     def show_diff(self, team1, team2):
         team1_rank = sum(self.rank_to_value(player.rank) for player in team1)
@@ -299,12 +306,12 @@ class MainWindow(QWidget):
         self.ban_title_label = QLabel("BANS:")
         self.ban_title_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         grid.addWidget(self.ban_title_label, row, 4)
-        champ_data = self.handler.get_champ_data()
+        champ_data = self.handler.champ_data
         for i, champ in enumerate(team.bans):
             for champion_name, champion_data in champ_data['data'].items():
                 if int(champion_data['key']) == champ.championId:
                     champ.championName = champion_name
-                    pixmap = self.handler(champion_name)
+                    pixmap = self.handler.get_champ_image(champion_name)
                     pixmap = pixmap.scaled(30, 30, Qt.AspectRatioMode.KeepAspectRatio)
                     champ_label = QLabel()
                     champ_image = QPixmap(pixmap)  # 画像パスを指定
@@ -345,6 +352,7 @@ class MainWindow(QWidget):
         # チャンピオン画像を表示
         champion_label = QLabel()
         champ_image = self.handler.get_champ_image(palyer.championName)
+        champ_image = champ_image.scaled(50, 50, Qt.AspectRatioMode.KeepAspectRatio)
         champion_image = QPixmap(champ_image)  # 画像パスを指定
         champion_label.setPixmap(champion_image)
         grid.addWidget(champion_label, row, 4)
@@ -360,7 +368,10 @@ class MainWindow(QWidget):
     def add_player_gui(self, player, row):
 
         player.attend_check = QCheckBox('')
-        player.attend_check.setChecked(True)
+        if player.spectator:
+            player.attend_check.setEnabled(False)
+        else:
+            player.attend_check.setChecked(True)
         self.player_grid.addWidget(player.attend_check, row, 0)
         self.player_grid.addWidget(QLabel(f"{player.name}"), row, 1)
 
@@ -565,6 +576,39 @@ class MainWindow(QWidget):
         # プレイヤー情報を更新
         item.setText(f"{current_data.rank} ({new_rank})")
         item.setData(Qt.ItemDataRole.UserRole, {"name": current_data.name, "rank": new_rank, "tag": current_data.tag})
+
+    def load_dict_from_file(self):
+        """ファイルからプレイヤー情報を読み込む"""
+        try:
+            file_path, _ = QFileDialog.getOpenFileName(self, "プレイヤー情報ファイルを開く", "", "JSONファイル (*.json)")
+            if file_path:
+                with open(file_path, 'r') as f:
+                    data = json.load(f)
+                    self.player_list = []
+
+                    for row in range(self.player_grid.rowCount()):
+                        name_widget = self.player_grid.itemAtPosition(row, 1).widget()
+                        player_name = name_widget.text()
+                        rank_widget = self.player_grid.itemAtPosition(row, 2).widget()
+
+                        if player_name in data:
+                            player_data = data[player_name]
+                            rank_widget.setCurrentText(player_data['rank'])
+                            for col, role in enumerate(ROLES, start=3):
+                                checkbox = self.player_grid.itemAtPosition(row, col).widget()
+                                checkbox.setChecked(player_data['role'].get(role, False))
+        except FileNotFoundError:
+            QMessageBox.warning(self, "エラー", "ファイルが見つかりません。")
+
+    def save_dict_to_file(self):
+        """プレイヤー情報をファイルに保存する"""
+        try:
+            file_path, _ = QFileDialog.getSaveFileName(self, "プレイヤー情報ファイルを保存", "player_dictionary.json", "JSONファイル (*.json)")
+            d = {player.name: {'tag': player.tag, 'rank': player.rank, 'role': {role: getattr(player, role).isChecked() for role in ROLES}} for player in self.player_list}
+            with open(file_path, 'w') as f:
+                json.dump(d, f, indent=4)
+        except FileNotFoundError:
+            QMessageBox.warning(self, "エラー", "ファイルが見つかりません。")
 
     def output_result(self):
         d = self.game_data.to_dict()
