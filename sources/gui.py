@@ -144,6 +144,20 @@ class MainWindow(QWidget):
         button_layout.addWidget(self.copy_button_opgg)
         teamsplit_layout.addLayout(button_layout)  # ボタンレイアウトを追加
 
+        # 署名欄
+        signature_layout = QHBoxLayout()
+        signature_layout.addStretch(1)
+        signature_layout.addWidget(QLabel("Produced by yamadalter"))
+        x_label = QLabel("<a href='https://x.com/yamadalter'><img src='material/logo-black.png'></a>")
+        x_label.setOpenExternalLinks(True)
+        x_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        git_label = QLabel("<a href='https://github.com/yamadalter/LOLCustomTool'><img src='material/github-mark.png'></a>")
+        git_label.setOpenExternalLinks(True)
+        git_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        signature_layout.addWidget(x_label)
+        signature_layout.addWidget(git_label)
+        teamsplit_layout.addLayout(signature_layout)
+
         # 試合結果取得ボタン
         result_button_layout = QHBoxLayout()
         self.get_game_results_button = QPushButton("試合結果取得")

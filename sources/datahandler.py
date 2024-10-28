@@ -100,7 +100,7 @@ class LoLDataHandler():
                 pixmap = pixmap.scaled(30, 30, Qt.AspectRatioMode.KeepAspectRatio)
                 items_images.append(pixmap)
             else:
-                pixmap = QPixmap('0.png')
+                pixmap = QPixmap('material/0.png')
                 pixmap = pixmap.scaled(30, 30, Qt.AspectRatioMode.KeepAspectRatio)
                 items_images.append(pixmap)
         return items_images
