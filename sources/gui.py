@@ -30,7 +30,6 @@ from PyQt6.QtCore import Qt, QPoint
 from PyQt6.QtGui import QPixmap
 
 
-
 class CustomEncoder(json.JSONEncoder):
     def default(self, obj):
         print(obj)
@@ -88,7 +87,8 @@ class MainWindow(QWidget):
 
         # プレイヤー情報表示エリア
         player_group = QGroupBox("プレイヤー")
-        player_group.setMinimumSize(300, 100)
+        player_group.setMinimumSize(100, 50)
+        player_group.setAlignment(Qt.AlignmentFlag.AlignTop)
         player_group.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)  # Apply to parent
         player_group.customContextMenuRequested.connect(self.show_context_menu)  # Connect to parent
         self.player_grid = QGridLayout()
@@ -158,46 +158,46 @@ class MainWindow(QWidget):
         signature_layout.addWidget(git_label)
         teamsplit_layout.addLayout(signature_layout)
 
-        # 試合結果取得ボタン
-        result_button_layout = QHBoxLayout()
-        self.get_game_results_button = QPushButton("試合結果取得")
-        self.get_game_results_button.clicked.connect(self.get_game_history)
-        result_button_layout.addWidget(self.get_game_results_button)
+        # # 試合結果取得ボタン
+        # result_button_layout = QHBoxLayout()
+        # self.get_game_results_button = QPushButton("試合結果取得")
+        # self.get_game_results_button.clicked.connect(self.get_game_history)
+        # result_button_layout.addWidget(self.get_game_results_button)
 
-        # 試合履歴取得用のワーカースレッド
-        self.history_worker_thread = WorkerThread()
-        self.history_worker_thread.history_updated.connect(self.display_game_history)
+        # # 試合履歴取得用のワーカースレッド
+        # self.history_worker_thread = WorkerThread()
+        # self.history_worker_thread.history_updated.connect(self.display_game_history)
 
-        # ゲームID選択用のコンボボックス
-        self.game_id_combobox = QComboBox()
-        self.game_id_combobox.currentIndexChanged.connect(self.game_id_selected)  # コンボボックスの選択変更時の処理
-        result_button_layout.addWidget(self.game_id_combobox)
+        # # ゲームID選択用のコンボボックス
+        # self.game_id_combobox = QComboBox()
+        # self.game_id_combobox.currentIndexChanged.connect(self.game_id_selected)  # コンボボックスの選択変更時の処理
+        # result_button_layout.addWidget(self.game_id_combobox)
 
-        # 試合結果を出力するボタン
-        self.result_output_button = QPushButton("結果出力")
-        self.result_output_button.clicked.connect(self.output_result)
-        result_button_layout.addWidget(self.result_output_button)
+        # # 試合結果を出力するボタン
+        # self.result_output_button = QPushButton("結果出力")
+        # self.result_output_button.clicked.connect(self.output_result)
+        # result_button_layout.addWidget(self.result_output_button)
 
-        # 取得結果表示
-        game_results_outer_layout = QVBoxLayout()
-        game_results_outer_layout.addLayout(result_button_layout)
+        # # 取得結果表示
+        # game_results_outer_layout = QVBoxLayout()
+        # game_results_outer_layout.addLayout(result_button_layout)
 
-        # 試合結果表示エリア
-        game_results_group = QGroupBox("試合結果")
-        self.result_context_layout = QVBoxLayout()
-        self.game_result_grid = QGridLayout()
-        self.result_context_layout.addLayout(self.game_result_grid)
-        game_results_group.setLayout(self.result_context_layout)
-        game_results_group.setMinimumSize(500, 500)
+        # # 試合結果表示エリア
+        # game_results_group = QGroupBox("試合結果")
+        # self.result_context_layout = QVBoxLayout()
+        # self.game_result_grid = QGridLayout()
+        # self.result_context_layout.addLayout(self.game_result_grid)
+        # game_results_group.setLayout(self.result_context_layout)
+        # game_results_group.setMinimumSize(500, 500)
 
-        # 試合結果取得ボタンと試合結果表示エリアをまとめる
-        game_results_outer_layout.addWidget(game_results_group)
+        # # 試合結果取得ボタンと試合結果表示エリアをまとめる
+        # game_results_outer_layout.addWidget(game_results_group)
 
-        # メインレイアウトに試合結果関連のレイアウトを追加
-        gameresult_layout.addLayout(game_results_outer_layout)
+        # # メインレイアウトに試合結果関連のレイアウトを追加
+        # gameresult_layout.addLayout(game_results_outer_layout)
 
         main_layout.addLayout(teamsplit_layout)
-        main_layout.addLayout(gameresult_layout)
+        # main_layout.addLayout(gameresult_layout)
 
         self.setLayout(main_layout)
 
@@ -596,7 +596,7 @@ class MainWindow(QWidget):
         try:
             file_path, _ = QFileDialog.getOpenFileName(self, "プレイヤー情報ファイルを開く", "", "JSONファイル (*.json)")
             if file_path:
-                with open(file_path, 'r') as f:
+                with open(file_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     self.player_list = []
 
@@ -619,8 +619,8 @@ class MainWindow(QWidget):
         try:
             file_path, _ = QFileDialog.getSaveFileName(self, "プレイヤー情報ファイルを保存", "player_dictionary.json", "JSONファイル (*.json)")
             d = {player.name: {'tag': player.tag, 'rank': player.rank, 'role': {role: getattr(player, role).isChecked() for role in ROLES}} for player in self.player_list}
-            with open(file_path, 'w') as f:
-                json.dump(d, f, indent=4)
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(d, f, indent=4, ensure_ascii=False)
         except FileNotFoundError:
             QMessageBox.warning(self, "エラー", "ファイルが見つかりません。")
 
