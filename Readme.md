@@ -9,7 +9,14 @@
 + チーム分け結果のコピー
 + 過去の試合結果の表示
 
-## 必要環境
+## Windows用チーム分けツール
+
+1. アプリケーションをダウンロードする
+    [リリースページ](https://github.com/yamadalter/LOLCustomTool/releases/tag/v0.9.1)にアクセスし、lolteamsplit.zipという名前のアプリケーションの最新バージョンをダウンロードします.
+2. 解凍してmain.exeを実行することで動作します
+下記必要環境はwindowsツールを動かすうえでは必要ありません。
+
+## リポジトリ必要環境
 
 + Python 3.7以上
 + PyQt6
