@@ -11,7 +11,6 @@ from PyQt6.QtGui import QPixmap
 
 class LoLDataHandler():
     def __init__(self):
-        
         ver_res = requests.get('https://ddragon.leagueoflegends.com/api/versions.json')
         ver_data = ver_res.json()
         self.ver = ver_data[0]

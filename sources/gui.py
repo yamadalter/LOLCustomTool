@@ -28,19 +28,17 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QPoint
 from PyQt6.QtGui import QPixmap
+from cassiopeia.data import Side
 
 
 class CustomEncoder(json.JSONEncoder):
     def default(self, obj):
-        print(obj)
-        print(isinstance(obj, type))
-        # print(obj.__name__)
         if hasattr(obj, 'isoformat'):  # Arrowオブジェクトはisoformat()メソッドを持つ
             return obj.isoformat()
-        elif isinstance(obj, type) and obj.__name__.startswith('Side.'):  # Side.blueのようなオブジェクトを処理
-            return obj.__name__.split('.')[-1]  # "blue" のみを返す
         elif isinstance(obj, timedelta):
             return str(obj)  # 文字列に変換
+        elif isinstance(obj, Side):  # Sideオブジェクトを処理
+            return obj.name  # Sideオブジェクトのname属性を返す
         return super().default(obj)  # その他のオブジェクトはデフォルトの処理
 
 
@@ -158,46 +156,46 @@ class MainWindow(QWidget):
         signature_layout.addWidget(git_label)
         teamsplit_layout.addLayout(signature_layout)
 
-        # # 試合結果取得ボタン
-        # result_button_layout = QHBoxLayout()
-        # self.get_game_results_button = QPushButton("試合結果取得")
-        # self.get_game_results_button.clicked.connect(self.get_game_history)
-        # result_button_layout.addWidget(self.get_game_results_button)
+        # 試合結果取得ボタン
+        result_button_layout = QHBoxLayout()
+        self.get_game_results_button = QPushButton("試合結果取得")
+        self.get_game_results_button.clicked.connect(self.get_game_history)
+        result_button_layout.addWidget(self.get_game_results_button)
 
-        # # 試合履歴取得用のワーカースレッド
-        # self.history_worker_thread = WorkerThread()
-        # self.history_worker_thread.history_updated.connect(self.display_game_history)
+        # 試合履歴取得用のワーカースレッド
+        self.history_worker_thread = WorkerThread()
+        self.history_worker_thread.history_updated.connect(self.display_game_history)
 
-        # # ゲームID選択用のコンボボックス
-        # self.game_id_combobox = QComboBox()
-        # self.game_id_combobox.currentIndexChanged.connect(self.game_id_selected)  # コンボボックスの選択変更時の処理
-        # result_button_layout.addWidget(self.game_id_combobox)
+        # ゲームID選択用のコンボボックス
+        self.game_id_combobox = QComboBox()
+        self.game_id_combobox.currentIndexChanged.connect(self.game_id_selected)  # コンボボックスの選択変更時の処理
+        result_button_layout.addWidget(self.game_id_combobox)
 
-        # # 試合結果を出力するボタン
-        # self.result_output_button = QPushButton("結果出力")
-        # self.result_output_button.clicked.connect(self.output_result)
-        # result_button_layout.addWidget(self.result_output_button)
+        # 試合結果を出力するボタン
+        self.result_output_button = QPushButton("結果出力")
+        self.result_output_button.clicked.connect(self.output_result)
+        result_button_layout.addWidget(self.result_output_button)
 
-        # # 取得結果表示
-        # game_results_outer_layout = QVBoxLayout()
-        # game_results_outer_layout.addLayout(result_button_layout)
+        # 取得結果表示
+        game_results_outer_layout = QVBoxLayout()
+        game_results_outer_layout.addLayout(result_button_layout)
 
-        # # 試合結果表示エリア
-        # game_results_group = QGroupBox("試合結果")
-        # self.result_context_layout = QVBoxLayout()
-        # self.game_result_grid = QGridLayout()
-        # self.result_context_layout.addLayout(self.game_result_grid)
-        # game_results_group.setLayout(self.result_context_layout)
-        # game_results_group.setMinimumSize(500, 500)
+        # 試合結果表示エリア
+        game_results_group = QGroupBox("試合結果")
+        self.result_context_layout = QVBoxLayout()
+        self.game_result_grid = QGridLayout()
+        self.result_context_layout.addLayout(self.game_result_grid)
+        game_results_group.setLayout(self.result_context_layout)
+        game_results_group.setMinimumSize(500, 500)
 
-        # # 試合結果取得ボタンと試合結果表示エリアをまとめる
-        # game_results_outer_layout.addWidget(game_results_group)
+        # 試合結果取得ボタンと試合結果表示エリアをまとめる
+        game_results_outer_layout.addWidget(game_results_group)
 
-        # # メインレイアウトに試合結果関連のレイアウトを追加
-        # gameresult_layout.addLayout(game_results_outer_layout)
+        # メインレイアウトに試合結果関連のレイアウトを追加
+        gameresult_layout.addLayout(game_results_outer_layout)
 
         main_layout.addLayout(teamsplit_layout)
-        # main_layout.addLayout(gameresult_layout)
+        main_layout.addLayout(gameresult_layout)
 
         self.setLayout(main_layout)
 
@@ -383,7 +381,7 @@ class MainWindow(QWidget):
 
         player.attend_check = QCheckBox('')
         if player.spectator:
-            player.attend_check.setEnabled(False)
+            player.attend_check.setChecked(False)
         else:
             player.attend_check.setChecked(True)
         self.player_grid.addWidget(player.attend_check, row, 0)
@@ -626,5 +624,5 @@ class MainWindow(QWidget):
 
     def output_result(self):
         d = self.game_data.to_dict()
-        with open('output.json', 'w') as f:
-            json.dump(d, f, cls=CustomEncoder, indent=4)
+        with open('output.json', 'w', encoding='utf-8') as f:
+            json.dump(d, f, cls=CustomEncoder, indent=4, ensure_ascii=False)
