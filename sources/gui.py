@@ -4,6 +4,7 @@ import datetime
 from common import RANK_VAL, RANKS, ROLES
 from datahandler import LoLDataHandler
 from lcu_worker import WorkerThread, PlayerData  # lcu_worker.py から WorkerThread をインポート
+from register import MatchDataUploader
 from datetime import timedelta
 from itertools import combinations, product
 from PyQt6.QtWidgets import (
@@ -49,7 +50,13 @@ class MainWindow(QWidget):
         # initial
         self.history = {}
         self.handler = LoLDataHandler()
+        self.uploader = MatchDataUploader()
+        self.uploader.connected.connect(self.on_connected)  # 接続完了シグナルにスロットを接続
+        self.uploader.upload_finished.connect(self.on_uploaded)  # 接続完了シグナルにスロットを接続
 
+        self.uploader.start()  # スレッドを開始
+
+        # ウィンドウの設定
         self.setWindowTitle("LoLチーム分け")
 
         # GUIのレイアウトを構築
@@ -172,7 +179,7 @@ class MainWindow(QWidget):
         result_button_layout.addWidget(self.game_id_combobox)
 
         # 試合結果を出力するボタン
-        self.result_output_button = QPushButton("結果出力")
+        self.result_output_button = QPushButton("結果アップロード")
         self.result_output_button.clicked.connect(self.output_result)
         result_button_layout.addWidget(self.result_output_button)
 
@@ -186,7 +193,7 @@ class MainWindow(QWidget):
         self.game_result_grid = QGridLayout()
         self.result_context_layout.addLayout(self.game_result_grid)
         game_results_group.setLayout(self.result_context_layout)
-        game_results_group.setMinimumSize(500, 500)
+        game_results_group.setMinimumSize(500, 600)
 
         # 試合結果取得ボタンと試合結果表示エリアをまとめる
         game_results_outer_layout.addWidget(game_results_group)
@@ -287,7 +294,7 @@ class MainWindow(QWidget):
         selected_game_id = self.game_id_combobox.itemText(index)
         if selected_game_id != "選択してください":  # 初期値の場合は何もしない
             # レイアウト内のすべてのウィジェットを削除
-            for i in reversed(range(self.game_result_grid.count())): 
+            for i in reversed(range(self.game_result_grid.count())):
                 self.game_result_grid.itemAt(i).widget().setParent(None)
             # タイトルを表示
             self.game_data = self.handler.get_game_data(self.history[int(selected_game_id)])
@@ -475,7 +482,7 @@ class MainWindow(QWidget):
         # チーム分けを実行
         tolerance = self.tolerance_spinbox.value()
         team1, team2 = self.perform_team_division(attend_players, tolerance)
-        
+
         if team1 is not None or team2 is not None:
             # 結果をリストに表示
             self.team1_list.clear()
@@ -537,7 +544,7 @@ class MainWindow(QWidget):
         Args:
         players: 各プレイヤーが選択したロールを表すオブジェクトのリスト。
                     各プレイヤーオブジェクトは、選択したロールの属性がTrueになります。
-
+https://www.twitch.tv/taka12
         Returns:
         2つのチームの可能な組み合わせのリスト。各チームは、各ロールのプレイヤーが1人ずつ含まれています。
         """
@@ -624,5 +631,17 @@ class MainWindow(QWidget):
 
     def output_result(self):
         d = self.game_data.to_dict()
-        with open('output.json', 'w', encoding='utf-8') as f:
-            json.dump(d, f, cls=CustomEncoder, indent=4, ensure_ascii=False)
+        self.uploader.upload_match_data(d)
+
+    def on_connected(self, flag):
+        """データベース接続完了時に呼び出されるスロット"""
+        print('データベース接続が完了しました')
+
+    def on_uploaded(self, flag):
+        msg_box = QMessageBox()  # QMessageBoxのインスタンスを作成
+        if flag:
+            msg_box.setText('アップロード完了しました')
+        else:
+            msg_box.setText('アップロード失敗しました')
+        msg_box.exec()
+        return

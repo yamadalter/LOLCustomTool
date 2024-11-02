@@ -1,6 +1,5 @@
 import sys
 import asyncio
-
 from PyQt6.QtWidgets import QApplication
 from gui import MainWindow  # gui.py から MainWindow をインポート
 import qasync
