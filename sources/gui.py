@@ -1,7 +1,7 @@
 import random
 import json
 import datetime
-from common import RANK_VAL, RANKS, ROLES
+from common import VERSION, RANK_VAL, RANKS, ROLES
 from datahandler import LoLDataHandler
 from lcu_worker import WorkerThread, PlayerData  # lcu_worker.py から WorkerThread をインポート
 from register import MatchDataUploader
@@ -53,7 +53,6 @@ class MainWindow(QWidget):
         self.uploader = MatchDataUploader()
         self.uploader.connected.connect(self.on_connected)  # 接続完了シグナルにスロットを接続
         self.uploader.upload_finished.connect(self.on_uploaded)  # 接続完了シグナルにスロットを接続
-
         self.uploader.start()  # スレッドを開始
 
         # ウィンドウの設定
@@ -151,6 +150,7 @@ class MainWindow(QWidget):
 
         # 署名欄
         signature_layout = QHBoxLayout()
+        signature_layout.addWidget(QLabel(f"version:{VERSION}"))
         signature_layout.addStretch(1)
         signature_layout.addWidget(QLabel("Produced by yamadalter"))
         x_label = QLabel("<a href='https://x.com/yamadalter'><img src='material/logo-black.png'></a>")
@@ -543,8 +543,7 @@ class MainWindow(QWidget):
 
         Args:
         players: 各プレイヤーが選択したロールを表すオブジェクトのリスト。
-                    各プレイヤーオブジェクトは、選択したロールの属性がTrueになります。
-https://www.twitch.tv/taka12
+        各プレイヤーオブジェクトは、選択したロールの属性がTrueになります。
         Returns:
         2つのチームの可能な組み合わせのリスト。各チームは、各ロールのプレイヤーが1人ずつ含まれています。
         """

@@ -41,19 +41,29 @@ class LoLDataHandler():
         for team in matchdata.teams:
             champions = [participant.championId for participant in team.participants]
             smite = None
+            sup = None
             for participant in team.participants:
                 if participant.spell1Id == 11 or participant.spell2Id == 11:
                     if smite is None:
                         smite = participant.championId
                     else:
                         smite = None
+                for i in range(7):
+                    if 3865 <= int(participant.stats[f'item{i}']) <= 3877:
+                        sup = participant.championId
                 for identity in matchdata.participantIdentities:
                     if participant.participantId == identity['participantId']:
                         participant.player = identity['player']
             if smite is None:
-                positions = get_roles(champion_roles, champions)
+                if sup is None:
+                    positions = get_roles(champion_roles, champions)
+                else:
+                    positions = get_roles(champion_roles, champions, utility=sup)
             else:
-                positions = get_roles(champion_roles, champions, jungle=smite)
+                if sup is None:
+                    positions = get_roles(champion_roles, champions, jungle=smite)
+                else:
+                    positions = get_roles(champion_roles, champions, jungle=smite, utility=sup)
             self.set_positions(team, positions)
         self.set_champion_name(matchdata.participants)
         return matchdata
