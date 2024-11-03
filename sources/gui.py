@@ -409,6 +409,7 @@ class MainWindow(QWidget):
         for row, player in enumerate(players, start=self.player_grid.rowCount()):
             if not any(p.name == player.name for p in self.player_list):
                 self.add_player_gui(player, row)
+        print('aaa')
 
     def add_player(self):
         name = self.player_name_input.text()
@@ -602,7 +603,6 @@ class MainWindow(QWidget):
             if file_path:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    self.player_list = []
 
                     for row in range(self.player_grid.rowCount()):
                         name_widget = self.player_grid.itemAtPosition(row, 1).widget()
