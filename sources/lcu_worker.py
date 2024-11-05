@@ -1,6 +1,7 @@
 import asyncio
 from PyQt6.QtCore import QThread, pyqtSignal
 from lcu_driver import Connector
+from common import RANK_VAL
 
 
 class PlayerData():
@@ -77,12 +78,15 @@ class WorkerThread(QThread):
                 rank_data = await connection.request('get', '/lol-ranked/v1/ranked-stats/%s' % puuid)
                 rank_json = await rank_data.json()
                 soloq = rank_json['queueMap']['RANKED_SOLO_5x5']
-                tier = soloq['previousSeasonHighestTier']
-                div = soloq['previousSeasonHighestDivision']
+                pre_tier = soloq['previousSeasonHighestTier']
+                pre_div = soloq['previousSeasonHighestDivision']
+                tier = soloq['highestTier']
+                div = soloq['highestDivision']
                 rank = f'{tier} {div}' if div != 'NA' else tier
+                pre_rank = f'{pre_tier} {pre_div}' if pre_div != 'NA' else pre_tier
                 player = PlayerData()
                 player.name = name
-                player.rank = rank
+                player.rank = rank if RANK_VAL.get(rank, 0) >= RANK_VAL.get(pre_rank, 0) else pre_rank
                 player.tag = tag
                 if spectator:
                     player.spectator = True
