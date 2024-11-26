@@ -1,4 +1,4 @@
-VERSION = 'v1.0.2'
+VERSION = 'v1.0.5'
 RANK_VAL = {
     "UNRANKED": 0,
     "IRON IV": 1,
@@ -71,8 +71,4 @@ RANKS = [
 
 ROLES = ['top', 'jg', 'mid', 'bot', 'sup']
 
-# RDS
-RDS_HOST = "database-1.cdgsg6ooa3ba.ap-northeast-1.rds.amazonaws.com"
-RDS_USER = "admin"
-RDS_PASSWORD = "vB8zHgmP3plY3SXQkVOf"
-RDS_DB = "zero_challe"
+

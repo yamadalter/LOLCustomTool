@@ -116,7 +116,8 @@ class MatchDataUploader(QThread):
         df_game = df_game.set_index('id')
         df_player = df_player.set_index('puuid')
         df_teams = df_teams.set_index(['gameId', 'teamId'])
-        df_bans = df_bans.set_index(['gameId', 'teamId', 'pickTurn'])
+        if len(df_bans) > 0:
+            df_bans = df_bans.set_index(['gameId', 'teamId', 'pickTurn'])
         df_stats = df_stats.set_index(['participantId', 'gameId'])
         df_participants = df_participants.set_index(['participantId', 'gameId'])
 
@@ -137,11 +138,12 @@ class MatchDataUploader(QThread):
                 table_name='team', if_row_exists='update',
                 add_new_columns=True, create_table=False
             )
-            upsert(
-                con=self.engine, df=df_bans,
-                table_name='bans', if_row_exists='update',
-                add_new_columns=True, create_table=False
-            )
+            if len(df_bans) > 0:
+                upsert(
+                    con=self.engine, df=df_bans,
+                    table_name='bans', if_row_exists='update',
+                    add_new_columns=True, create_table=False
+                )
             upsert(
                 con=self.engine, df=df_stats,
                 table_name='stats', if_row_exists='update',

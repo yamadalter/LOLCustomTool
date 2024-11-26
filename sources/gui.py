@@ -326,16 +326,17 @@ class MainWindow(QWidget):
         self.ban_title_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         grid.addWidget(self.ban_title_label, row, 4)
         champ_data = self.handler.champ_data
-        for i, champ in enumerate(team.bans):
-            for champion_name, champion_data in champ_data['data'].items():
-                if int(champion_data['key']) == champ.championId:
-                    champ.championName = champion_name
-                    pixmap = self.handler.get_champ_image(champion_name)
-                    pixmap = pixmap.scaled(30, 30, Qt.AspectRatioMode.KeepAspectRatio)
-                    champ_label = QLabel()
-                    champ_image = QPixmap(pixmap)  # 画像パスを指定
-                    champ_label.setPixmap(champ_image)
-                    grid.addWidget(champ_label, row, 5 + i)  # 3列目から開始
+        if len(team.bans) > 0:
+            for i, champ in enumerate(team.bans):
+                for champion_name, champion_data in champ_data['data'].items():
+                    if int(champion_data['key']) == champ.championId:
+                        champ.championName = champion_name
+                        pixmap = self.handler.get_champ_image(champion_name)
+                        pixmap = pixmap.scaled(30, 30, Qt.AspectRatioMode.KeepAspectRatio)
+                        champ_label = QLabel()
+                        champ_image = QPixmap(pixmap)  # 画像パスを指定
+                        champ_label.setPixmap(champ_image)
+                        grid.addWidget(champ_label, row, 5 + i)  # 3列目から開始
 
         # 各プレイヤーの情報を表示
         j = 0
@@ -527,9 +528,13 @@ class MainWindow(QWidget):
                 diff = abs(team1_total_rank - team2_total_rank)
                 if diff <= tolerance:
                     assignments = self.assign_roles(team1)
+                    if len(assignments) == 0:
+                        continue
                     team1 = random.choice(assignments)
                     for player, role in zip(team1, ROLES):
                         player.role = role
+                    if len(assignments) == 0:
+                        continue
                     assignments = self.assign_roles(team2)
                     team2 = random.choice(assignments)
                     for player, role in zip(team2, ROLES):
