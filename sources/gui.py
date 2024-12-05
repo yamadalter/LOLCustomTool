@@ -292,7 +292,7 @@ class MainWindow(QWidget):
 
     def game_id_selected(self, index):
         selected_game_id = self.game_id_combobox.itemText(index)
-        if selected_game_id != "選択してください":  # 初期値の場合は何もしない
+        if selected_game_id != "選択してください" and selected_game_id != "":  # 初期値の場合は何もしない
             # レイアウト内のすべてのウィジェットを削除
             for i in reversed(range(self.game_result_grid.count())):
                 self.game_result_grid.itemAt(i).widget().setParent(None)
@@ -522,6 +522,8 @@ class MainWindow(QWidget):
 
         if len(valid_teams) > 0:
             for team1, team2 in valid_teams:
+                if random.random() < 0.5:  # 50%の確率でチームを入れ替える
+                    team1, team2 = team2, team1
                 # ランク差が許容範囲内になるまでチームメンバーを調整
                 team1_total_rank = sum(player.rank_val for player in team1)
                 team2_total_rank = sum(player.rank_val for player in team2)
