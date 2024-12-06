@@ -1,7 +1,8 @@
 import random
 import json
 import datetime
-from common import VERSION, RANK_VAL, RANKS, ROLES
+import requests
+from common import VERSION, RANK_VAL, RANKS, ROLES, WEBHOOK
 from datahandler import LoLDataHandler
 from lcu_worker import WorkerThread, PlayerData  # lcu_worker.py から WorkerThread をインポート
 from register import MatchDataUploader
@@ -104,18 +105,26 @@ class MainWindow(QWidget):
         # チーム分け結果表示エリア
         team_group = QGroupBox("チーム分け結果")
         team_layout = QHBoxLayout()
+        team1_layout = QVBoxLayout()
+        team2_layout = QVBoxLayout()
         self.team1_list = QListWidget()
         self.team2_list = QListWidget()
         self.team1_player = []
         self.team2_player = []
-        team_layout.addWidget(self.team1_list)
-        team_layout.addWidget(self.team2_list)
+        self.team1_score = QLabel()
+        self.team2_score = QLabel()
+        team1_layout.addWidget(self.team1_score)
+        team2_layout.addWidget(self.team2_score)
+        team1_layout.addWidget(self.team1_list)
+        team2_layout.addWidget(self.team2_list)
+        team_layout.addLayout(team1_layout)
+        team_layout.addLayout(team2_layout)
+        team_group.setLayout(team_layout)
+        teamsplit_layout.addWidget(team_group)
 
         # チームのランク差を表示するラベル
         self.diff_label = QLabel()
-        team_layout.addWidget(self.diff_label)
-        team_group.setLayout(team_layout)
-        teamsplit_layout.addWidget(team_group)
+        teamsplit_layout.addWidget(self.diff_label)
 
         # 許容ランク誤差入力エリア
         tolerance_layout = QHBoxLayout()
@@ -146,6 +155,9 @@ class MainWindow(QWidget):
         self.copy_button_opgg = QPushButton("結果コピー(opgg)")
         self.copy_button_opgg.clicked.connect(self.copy_to_clipboard_opgg)
         button_layout.addWidget(self.copy_button_opgg)
+        self.webhook_button = QPushButton("結果出力(Discord)")
+        self.webhook_button.clicked.connect(self.webhook_button_clicked)
+        button_layout.addWidget(self.webhook_button)
         teamsplit_layout.addLayout(button_layout)  # ボタンレイアウトを追加
 
         # 署名欄
@@ -238,7 +250,9 @@ class MainWindow(QWidget):
         team1_rank = sum(self.rank_to_value(player.rank) for player in team1)
         team2_rank = sum(self.rank_to_value(player.rank) for player in team2)
         diff = abs(team1_rank - team2_rank)
-        # ラベルにランク差を表示
+        # ラベルにランクを表示
+        self.team1_score.setText(f"Score: {team1_rank}")
+        self.team2_score.setText(f"Score: {team2_rank}")
         self.diff_label.setText(f"チームのランク差: {diff}")
 
     def delete_row(self, row):
@@ -423,6 +437,7 @@ class MainWindow(QWidget):
         player.name = name
         player.rank = rank
         player.tag = 'JP1'
+        player.spectator = False
         self.add_player_gui(player, row)
 
     def delete_player(self):
@@ -469,6 +484,55 @@ class MainWindow(QWidget):
 
         # クリップボードにコピー
         QApplication.clipboard().setText(team1_text + "\n" + team2_text)
+
+    def webhook_button_clicked(self):
+
+        name1_list = []
+        team1_text = ""
+        for player in self.team1_player:
+            team1_text += f'{player.role}: {player.name}\n'
+            name = player.name.replace(' ', '+')
+            tag = player.tag
+            name1_list.append(f'{name}%23{tag}')
+        name1 = '%2C'.join(name1_list)
+        team1_url = f'[OPGG](https://www.op.gg/multisearch/jp?summoners={name1})'
+
+        name2_list = []
+        team2_text = ""
+        for player in self.team2_player:
+            team2_text += f'{player.role}: {player.name}\n'
+            name = player.name.replace(' ', '+')
+            tag = player.tag
+            name2_list.append(f'{name}%23{tag}')
+        name2 = '%2C'.join(name2_list)
+        team2_url = f'[OPGG](https://www.op.gg/multisearch/jp?summoners={name2})'
+
+        payload = {
+            "payload_json" : {
+                "embeds": [
+                    {
+                        "title"			: "Custom Team",
+                        "description"	: "",
+                        "url"			: "",
+                        "color"			: 5620992,
+                        "fields": [
+                            {
+                                "name"	: "Team 1",
+                                "value"	: f"{team1_text}\n {team1_url}",
+                                "inline": True,
+                            },
+                            {
+                                "name"	: "Team 2",
+                                "value"	: f"{team2_text}\n {team1_url}",
+                                "inline": True,
+                            },
+                        ],
+                    }
+                ]
+            }
+        }
+        payload['payload_json'] = json.dumps(payload['payload_json'], ensure_ascii=False)
+        requests.post(WEBHOOK, data=payload)
 
     def divide_teams(self):
         attend_players = []
