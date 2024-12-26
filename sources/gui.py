@@ -523,7 +523,7 @@ class MainWindow(QWidget):
                             },
                             {
                                 "name"	: "Team 2",
-                                "value"	: f"{team2_text}\n {team1_url}",
+                                "value"	: f"{team2_text}\n {team2_url}",
                                 "inline": True,
                             },
                         ],
@@ -621,6 +621,7 @@ class MainWindow(QWidget):
         """
         n = len(players) // 2
         all_combinations = combinations(players, n)
+        random.shuffle(all_combinations)
         valid_teams = []
         roles = ROLES
         for team1 in all_combinations:

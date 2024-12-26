@@ -1,4 +1,4 @@
-VERSION = 'v1.0.5'
+VERSION = 'v1.1.2'
 RANK_VAL = {
     "UNRANKED": 0,
     "IRON IV": 1,
@@ -72,3 +72,4 @@ RANKS = [
 ROLES = ['top', 'jg', 'mid', 'bot', 'sup']
 
 
+# RDS
