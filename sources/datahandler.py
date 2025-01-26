@@ -128,7 +128,7 @@ def highest_possible_playrate(champion_positions):
 
 
 def calculate_metric(champion_positions, champions_by_position):
-    return sum(champion_positions[champion][position] for position, champion in champions_by_position.items()) / len(champions_by_position)
+    return sum(champion_positions[champion][position] if champion in champion_positions else 0.0 for position, champion in champions_by_position.items()) / len(champions_by_position)
 
 
 def calculate_confidence(best_metric, second_best_metric):
@@ -193,9 +193,9 @@ def get_positions(champion_positions, composition: List[int], top=None, jungle=N
             second_best_metric = metric
             second_best_positions = copy.deepcopy(test_composition)
 
-    best_play_percents = {champion: champion_positions[champion][position] for position, champion in best_positions.items()}
+    best_play_percents = {champion: champion_positions[champion][position] if champion in champion_positions else 0.0 for position, champion in best_positions.items()}
     if second_best_positions is not None:
-        second_best_play_percents = {champion: champion_positions[champion][position] for position, champion in second_best_positions.items()}
+        second_best_play_percents = {champion: champion_positions[champion][position] if champion in champion_positions else 0.0 for position, champion in second_best_positions.items()}
     else:
         second_best_play_percents = None
 
@@ -262,7 +262,7 @@ def get_roles(champion_positions, composition: List[int], top=None, jungle=None,
 
         # Done! Grab the results.
         best = sorted([(position, champion) for position, champion in positions.items() if position not in identified],
-                      key=lambda t: champion_positions[t[1]][t[0]], reverse=True)[0]
+                      key=lambda t: champion_positions.get(t[1], {}).get(t[0], -1), reverse=True)[0]
         identified[best[0]] = best[1]
         confidence = calculate_confidence(metric, secondary_metric)
 

@@ -620,7 +620,7 @@ class MainWindow(QWidget):
         2つのチームの可能な組み合わせのリスト。各チームは、各ロールのプレイヤーが1人ずつ含まれています。
         """
         n = len(players) // 2
-        all_combinations = combinations(players, n)
+        all_combinations = list(combinations(players, n))
         random.shuffle(all_combinations)
         valid_teams = []
         roles = ROLES
