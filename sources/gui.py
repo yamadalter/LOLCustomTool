@@ -2,7 +2,7 @@ import random
 import json
 import datetime
 import requests
-from common import VERSION, RANK_VAL, RANKS, ROLES, WEBHOOK
+from common import VERSION, RANK_VAL, RANKS, ROLES, POSITION, WEBHOOK
 from datahandler import LoLDataHandler
 from lcu_worker import WorkerThread, PlayerData  # lcu_worker.py から WorkerThread をインポート
 from register import MatchDataUploader
@@ -28,8 +28,8 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QMenu
 )
-from PyQt6.QtCore import Qt, QPoint
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtCore import Qt, QPoint, QMimeData
+from PyQt6.QtGui import QPixmap, QDrag
 from cassiopeia.data import Side
 
 
@@ -42,6 +42,105 @@ class CustomEncoder(json.JSONEncoder):
         elif isinstance(obj, Side):  # Sideオブジェクトを処理
             return obj.name  # Sideオブジェクトのname属性を返す
         return super().default(obj)  # その他のオブジェクトはデフォルトの処理
+
+
+class PlayerRowWidget(QWidget):
+    def __init__(self, player, handler, main_window):
+        super().__init__()
+        self.player = player
+        self.handler = handler
+        self.main_window = main_window
+        self.setAcceptDrops(True)
+        self.layout = QGridLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setColumnStretch(0, 3)
+        self.display_player()
+
+    def display_player(self):
+        # サモナー名を表示
+        summoner_name_label = QLabel(self.player.player['gameName'])
+        self.layout.addWidget(summoner_name_label, 0, 0, 1, 10)
+
+        # KDAを表示
+        self.kda_label = QLabel(f"{self.player.stats['kills']}/{self.player.stats['deaths']}/{self.player.stats['assists']}")
+        self.layout.addWidget(self.kda_label, 0, 1)
+
+        # ルーン画像を表示
+        rune_label1 = QLabel()
+        rune_images = self.handler.get_rune_image(self.player)
+        rune_image1 = QPixmap(rune_images[0])
+        rune_label1.setPixmap(rune_image1)
+        self.layout.addWidget(rune_label1, 0, 2)
+        rune_label2 = QLabel()
+        rune_image2 = QPixmap(rune_images[1])
+        rune_label2.setPixmap(rune_image2)
+        self.layout.addWidget(rune_label2, 0, 3)
+
+        # チャンピオン画像を表示
+        champion_label = QLabel()
+        champ_image = self.handler.get_champ_image(self.player.championName)
+        champ_image = champ_image.scaled(50, 50, Qt.AspectRatioMode.KeepAspectRatio)
+        champion_label.setPixmap(champ_image)
+        self.layout.addWidget(champion_label, 0, 4)
+
+        # アイテム画像を表示
+        item_images = self.handler.get_item_images(self.player)
+        for i, item_image in enumerate(item_images):
+            item_label = QLabel()
+            item_label.setPixmap(item_image)
+            self.layout.addWidget(item_label, 0, 5 + i)
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() == Qt.MouseButton.LeftButton:
+            drag = QDrag(self)
+            mime_data = QMimeData()
+            mime_data.setText(self.player.player['puuid'])
+            drag.setMimeData(mime_data)
+            drag.setPixmap(self.grab())
+            drag.exec(Qt.DropAction.MoveAction)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasText():
+            event.accept()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        source_puuid = event.mimeData().text()
+        source_widget = self.main_window.findChild(PlayerRowWidget, source_puuid)
+
+        if source_widget and source_widget != self and self.player.side == source_widget.player.side:
+            # プレイヤーが所属するチームを特定
+            team = None
+            for t in self.main_window.game_data.teams:
+                puuids = [p.player['puuid'] for p in t.participants]
+                if self.player.player['puuid'] in puuids and source_puuid in puuids:
+                    team = t
+                    break
+
+            if team:
+                layout = self.parentWidget().layout()
+                source_index = layout.indexOf(source_widget)
+                target_index = layout.indexOf(self)
+
+                # レイアウト内でウィジェットを入れ替え
+                layout.insertWidget(target_index, layout.takeAt(source_index).widget())
+
+                # UIの順序に基づいて新しいロールの辞書を作成
+                new_positions = {}
+                for i in range(layout.count()):
+                    widget = layout.itemAt(i).widget()
+                    if isinstance(widget, PlayerRowWidget):
+                        # ウィジェットのレイアウト上の位置に基づいて新しいロールを割り当てる
+                        new_positions[POSITION[i]] = widget.player.championId
+
+                # datahandlerのset_positionsを呼び出して、データ内のロールを更新
+                self.handler.set_positions(team, new_positions)
+                event.accept()
+            else:
+                event.ignore()
+        else:
+            event.ignore()
 
 
 class MainWindow(QWidget):
@@ -316,14 +415,22 @@ class MainWindow(QWidget):
             self.title_label = QLabel(f"Summoner's Rift ({td})")
             self.title_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
             self.game_result_grid.addWidget(self.title_label, 0, 0, 1, 11)
+
+            # チームごとのプレイヤーウィジェットを保持するコンテナ
+            self.team_widgets = {1: QWidget(), 2: QWidget()}
+            self.team_layouts = {1: QVBoxLayout(self.team_widgets[1]), 2: QVBoxLayout(self.team_widgets[2])}
+            self.team_layouts[1].setContentsMargins(0, 0, 0, 0)
+            self.team_layouts[2].setContentsMargins(0, 0, 0, 0)
+
             # 勝者と敗者を分けて表示
             for team in self.game_data.teams:
-                if team.isWinner == 'Win':
-                    self.display_team(self.game_result_grid, 1, "Winners", team)  # 2行目から開始
-                else:
-                    self.display_team(self.game_result_grid, 12, "Losers", team)  # 13行目から開始
+                team_id = 1 if team.isWinner == 'Win' else 2
+                self.display_team(self.game_result_grid, team_id, "Winners" if team_id == 1 else "Losers", team)
 
-    def display_team(self, grid, row, title, team):
+            self.game_result_grid.addWidget(self.team_widgets[1], 2, 0, 1, 12)
+            self.game_result_grid.addWidget(self.team_widgets[2], 13, 0, 1, 12)
+
+    def display_team(self, grid, team_id, title, team):
         # チームタイトルを表示
         kill, death, assi = 0, 0, 0
         for p in team.participants:
@@ -331,6 +438,7 @@ class MainWindow(QWidget):
             death += p.stats['deaths']
             assi += p.stats['assists']
 
+        row = 1 if team_id == 1 else 12
         self.team_title_label = QLabel(f"{title} ({kill}/{death}/{assi})")
         self.team_title_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         grid.addWidget(self.team_title_label, row, 0, 1, 12)
@@ -350,54 +458,15 @@ class MainWindow(QWidget):
                         champ_label = QLabel()
                         champ_image = QPixmap(pixmap)  # 画像パスを指定
                         champ_label.setPixmap(champ_image)
-                        grid.addWidget(champ_label, row, 5 + i)  # 3列目から開始
+                        grid.addWidget(champ_label, row, 5 + i)
 
         # 各プレイヤーの情報を表示
-        j = 0
-        for position in ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY']:
-            for player in team.participants:
-                if player.position == position:
-                    row_offset = row + j + 1
-                    self.display_player(grid, row_offset, player)
-                    j += 1
-
-    def display_player(self, grid, row, palyer):
-
-        # サモナー名を表示
-        summoner_name_label = QLabel(palyer.player['gameName'])
-        grid.addWidget(summoner_name_label, row, 0)
-
-        # KDAを表示
-        self.kda_label = QLabel(f"{palyer.stats['kills']}/{palyer.stats['deaths']}/{palyer.stats['assists']}")
-        # self.kda_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        grid.addWidget(self.kda_label, row, 1)
-
-        # ルーン画像を表示
-        rune_label1 = QLabel()
-        rune_images = self.handler.get_rune_image(palyer)
-        rune_image1 = QPixmap(rune_images[0])  # 画像パスを指定
-        rune_label1.setPixmap(rune_image1)
-        grid.addWidget(rune_label1, row, 2)
-        rune_label2 = QLabel()
-        rune_image2 = QPixmap(rune_images[1])  # 画像パスを指定
-        rune_label2.setPixmap(rune_image2)
-        grid.addWidget(rune_label2, row, 3)
-
-        # チャンピオン画像を表示
-        champion_label = QLabel()
-        champ_image = self.handler.get_champ_image(palyer.championName)
-        champ_image = champ_image.scaled(50, 50, Qt.AspectRatioMode.KeepAspectRatio)
-        champion_image = QPixmap(champ_image)  # 画像パスを指定
-        champion_label.setPixmap(champion_image)
-        grid.addWidget(champion_label, row, 4)
-
-        # アイテム画像を表示
-        item_images = self.handler.get_item_images(palyer)
-        for j, item_image in enumerate(item_images):
-            item_label = QLabel()
-            item_image = QPixmap(item_image)  # 画像パスを指定
-            item_label.setPixmap(item_image)
-            grid.addWidget(item_label, row, 5 + j)  # 4列目から開始
+        team_layout = self.team_layouts[team_id]
+        sorted_participants = sorted(team.participants, key=lambda p: POSITION.index(p.position))
+        for player in sorted_participants:
+            player_widget = PlayerRowWidget(player, self.handler, self)
+            player_widget.setObjectName(player.player['puuid'])
+            team_layout.addWidget(player_widget)
 
     def add_player_gui(self, player, row):
 
