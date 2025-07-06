@@ -663,14 +663,14 @@ class MainWindow(QWidget):
                 diff = abs(team1_total_rank - team2_total_rank)
                 if diff <= tolerance:
                     assignments = self.assign_roles(team1)
-                    if len(assignments) == 0:
+                    if len(assignments) > 0:
                         continue
                     team1 = random.choice(assignments)
                     for player, role in zip(team1, ROLES):
                         player.role = role
+                    assignments = self.assign_roles(team2)
                     if len(assignments) == 0:
                         continue
-                    assignments = self.assign_roles(team2)
                     team2 = random.choice(assignments)
                     for player, role in zip(team2, ROLES):
                         player.role = role
