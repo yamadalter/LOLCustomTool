@@ -2,7 +2,7 @@ import random
 import json
 import datetime
 import requests
-from common import VERSION, RANK_VAL, RANKS, ROLES, POSITION, WEBHOOK
+from common import VERSION, RANK_VAL, RANKS, RANKS_TAG, ROLES, POSITION, WEBHOOK
 from datahandler import LoLDataHandler
 from lcu_worker import WorkerThread, PlayerData  # lcu_worker.py から WorkerThread をインポート
 from register import MatchDataUploader
@@ -322,7 +322,11 @@ class MainWindow(QWidget):
         self.history_worker_thread.history_updated.connect(self.display_game_history)
 
     def player_grid_init(self):
-        for col, label_text in enumerate(("参加", "NAME", "RANK", "TOP", "JG", "MID", "BOT", "SUP")):
+        labels = ["NAME"]
+        for role in ROLES:
+            labels.append(role.upper())
+            labels.append("RANK")
+        for col, label_text in enumerate(labels):
             self.player_grid.addWidget(QLabel(label_text), 0, col)
             self.player_grid.setColumnStretch(col, 1)
 
@@ -384,7 +388,8 @@ class MainWindow(QWidget):
                 item = self.player_grid.itemAtPosition(row, col)
                 if item:
                     widget = item.widget()
-                    widget.setChecked(True)
+                    if isinstance(widget, QCheckBox):
+                        widget.setChecked(True)
 
     def lobby_worker(self):
         self.lobby_worker_thread.mode = "lobby"
@@ -469,23 +474,27 @@ class MainWindow(QWidget):
             team_layout.addWidget(player_widget)
 
     def add_player_gui(self, player, row):
+        self.player_grid.addWidget(QLabel(f"{player.name}"), row, 0)
 
-        player.attend_check = QCheckBox('')
-        if player.spectator:
-            player.attend_check.setChecked(False)
-        else:
-            player.attend_check.setChecked(True)
-        self.player_grid.addWidget(player.attend_check, row, 0)
-        self.player_grid.addWidget(QLabel(f"{player.name}"), row, 1)
-
-        player.rank_combobox = QComboBox()
-        player.rank_combobox.addItems(RANKS)
-        player.rank_combobox.setCurrentText(player.rank)
-        self.player_grid.addWidget(player.rank_combobox, row, 2)
-
-        for col, role in enumerate(ROLES, start=3):
+        col_offset = 1
+        for role in ROLES:
+            # Role checkbox
             setattr(player, role, QCheckBox(''))
-            self.player_grid.addWidget(getattr(player, role), row, col)
+            self.player_grid.addWidget(getattr(player, role), row, col_offset)
+            col_offset += 1
+
+            # Rank combobox for the role
+            rank_combobox = QComboBox()
+            rank_combobox.addItems(RANKS_TAG)
+            # Set initial rank if available in player data, otherwise default to UNRANKED
+            if hasattr(player, "rank"):
+                role_rank = getattr(player, "rank")
+                rank_combobox.setCurrentText(RANKS_TAG[RANKS.index(role_rank)])
+            else:
+                rank_combobox.setCurrentText("UN")
+            setattr(player, f"{role}_rank_combobox", rank_combobox)
+            self.player_grid.addWidget(rank_combobox, row, col_offset)
+            col_offset += 1
 
         self.player_list.append(player)
 
@@ -493,7 +502,6 @@ class MainWindow(QWidget):
         for row, player in enumerate(players, start=self.player_grid.rowCount()):
             if not any(p.name == player.name for p in self.player_list):
                 self.add_player_gui(player, row)
-        print('aaa')
 
     def add_player(self):
         name = self.player_name_input.text()
@@ -606,9 +614,15 @@ class MainWindow(QWidget):
     def divide_teams(self):
         attend_players = []
         for player in self.player_list:
-            player.rank = player.rank_combobox.currentText()
-            if player.attend_check.isChecked():
-                attend_players.append(player)
+            attend_check = False
+            for role in ROLES:
+                role_rank = RANKS[RANKS_TAG.index(getattr(player, f"{role}_rank_combobox").currentText())]
+                setattr(player, f"{role}_rank", role_rank)
+
+                if getattr(player, role).isChecked():
+                    if not attend_check:
+                        attend_check = True
+                        attend_players.append(player)
 
         if len(attend_players) != 10:
             QMessageBox.warning(self, "エラー", "チーム分けには10人のプレイヤーが必要です。")
@@ -618,29 +632,42 @@ class MainWindow(QWidget):
         tolerance = self.tolerance_spinbox.value()
         team1, team2 = self.perform_team_division(attend_players, tolerance)
 
-        if team1 is not None or team2 is not None:
+        if team1 is not None and team2 is not None:
             # 結果をリストに表示
             self.team1_list.clear()
             self.team2_list.clear()
             self.team1_player = []
             self.team2_player = []
             for player, role in zip(team1, ROLES):
-                item = QListWidgetItem(f"{role}: {player.name} ({player.rank})")
+                item = QListWidgetItem(f"{role}: {player.name} ({getattr(player, f'{role}_rank')})")
                 self.team1_list.addItem(item)
+                player.role = role  # Add this line
                 self.team1_player.append(player)
             for player, role in zip(team2, ROLES):
-                item = QListWidgetItem(f"{role}: {player.name} ({player.rank})")
+                item = QListWidgetItem(f"{role}: {player.name} ({getattr(player, f'{role}_rank')})")
                 self.team2_list.addItem(item)
+                player.role = role  # Add this line
                 self.team2_player.append(player)
 
             # 差分を計算
-            self.show_diff(team1, team2)
+            self.show_diff_role_based(team1, team2)  # 新しい差分表示メソッド
+        else:
+            QMessageBox.warning(self, "エラー", "チーム分けに失敗しました。ロールの組み合わせを確認してください。")
+
+    def show_diff_role_based(self, team1, team2):
+        team1_rank = sum(RANK_VAL[getattr(player, f"{role}_rank")] for player, role in zip(team1, ROLES))
+        team2_rank = sum(RANK_VAL[getattr(player, f"{role}_rank")] for player, role in zip(team2, ROLES))
+        diff = abs(team1_rank - team2_rank)
+        # ラベルにランクを表示
+        self.team1_score.setText(f"Score: {team1_rank}")
+        self.team2_score.setText(f"Score: {team2_rank}")
+        self.diff_label.setText(f"チームのランク差: {diff}")
 
     def perform_team_division(self, players, tolerance):
         # プレイヤーのロール情報を辞書にまとめる
         roles = {'top': [], 'jg': [], 'mid': [], 'bot': [], 'sup': []}
         for player in players:
-            player.rank_val = RANK_VAL[player.rank]  # ランク値を追加
+            # player.rank_val = RANK_VAL[player.rank]  # ランク値を追加
             for role in roles:
                 if getattr(player, role).isChecked():
                     roles[role].append(player)
@@ -657,24 +684,29 @@ class MainWindow(QWidget):
             for team1, team2 in valid_teams:
                 if random.random() < 0.5:  # 50%の確率でチームを入れ替える
                     team1, team2 = team2, team1
+                
                 # ランク差が許容範囲内になるまでチームメンバーを調整
-                team1_total_rank = sum(player.rank_val for player in team1)
-                team2_total_rank = sum(player.rank_val for player in team2)
+                # ロール割り当てを先に行う
+                assignments1 = self.assign_roles(team1)
+                if not assignments1:
+                    continue
+                team1_assigned = random.choice(assignments1)
+
+                assignments2 = self.assign_roles(team2)
+                if not assignments2:
+                    continue
+                team2_assigned = random.choice(assignments2)
+
+                team1_total_rank = sum(RANK_VAL[getattr(player, f"{role}_rank")] for player, role in zip(team1_assigned, ROLES))
+                team2_total_rank = sum(RANK_VAL[getattr(player, f"{role}_rank")] for player, role in zip(team2_assigned, ROLES))
+
                 diff = abs(team1_total_rank - team2_total_rank)
                 if diff <= tolerance:
-                    assignments = self.assign_roles(team1)
-                    if len(assignments) > 0:
-                        continue
-                    team1 = random.choice(assignments)
-                    for player, role in zip(team1, ROLES):
+                    for player, role in zip(team1_assigned, ROLES):
                         player.role = role
-                    assignments = self.assign_roles(team2)
-                    if len(assignments) == 0:
-                        continue
-                    team2 = random.choice(assignments)
-                    for player, role in zip(team2, ROLES):
+                    for player, role in zip(team2_assigned, ROLES):
                         player.role = role
-                    return team1, team2
+                    return team1_assigned, team2_assigned
 
         return None, None
 
@@ -706,6 +738,11 @@ class MainWindow(QWidget):
     def assign_roles(self, team):
         combinations = []
         role_assignments = [[player for player in team if getattr(player, role).isChecked()] for role in ROLES]
+        
+        # Check if any role has no players
+        if not all(role_assignments):
+            return []
+
         for combination in product(*role_assignments):
             # 重複がない組み合わせのみ追加
             if len(set(combination)) == len(combination):
@@ -745,29 +782,53 @@ class MainWindow(QWidget):
                 with open(file_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
 
-                    for row in range(self.player_grid.rowCount()):
-                        name_widget = self.player_grid.itemAtPosition(row, 1).widget()
-                        player_name = name_widget.text()
-                        rank_widget = self.player_grid.itemAtPosition(row, 2).widget()
+                    for row in range(1, self.player_grid.rowCount()):  # Start from 1 to skip header
+                        name_widget_item = self.player_grid.itemAtPosition(row, 0)
+                        if not name_widget_item:
+                            continue
+                        player_name = name_widget_item.widget().text()
 
                         if player_name in data:
                             player_data = data[player_name]
-                            rank_widget.setCurrentText(player_data['rank'])
-                            for col, role in enumerate(ROLES, start=3):
-                                checkbox = self.player_grid.itemAtPosition(row, col).widget()
-                                checkbox.setChecked(player_data['role'].get(role, False))
-        except FileNotFoundError:
-            QMessageBox.warning(self, "エラー", "ファイルが見つかりません。")
+
+                            # Update roles and role-specific ranks
+                            col_offset = 1
+                            for role in ROLES:
+                                # Role checkbox
+                                checkbox = self.player_grid.itemAtPosition(row, col_offset).widget()
+                                checkbox.setChecked(player_data.get('role', {}).get(role, False))
+                                col_offset += 1
+
+                                # Role rank
+                                role_rank_combobox = self.player_grid.itemAtPosition(row, col_offset).widget()
+                                role_rank_combobox.setCurrentText(player_data.get('rank', {}).get(f'{role}_rank', 'UNRANKED'))
+                                col_offset += 1
+                                
+        except Exception as e:
+            QMessageBox.warning(self, "エラー", f"ファイルの読み込み中にエラーが発生しました: {e}")
 
     def save_dict_to_file(self):
         """プレイヤー情報をファイルに保存する"""
         try:
             file_path, _ = QFileDialog.getSaveFileName(self, "プレイヤー情報ファイルを保存", "player_dictionary.json", "JSONファイル (*.json)")
-            d = {player.name: {'tag': player.tag, 'rank': player.rank, 'role': {role: getattr(player, role).isChecked() for role in ROLES}} for player in self.player_list}
+            if not file_path:
+                return
+            
+            player_data_to_save = {}
+            for player in self.player_list:
+                roles_data = {role: getattr(player, role).isChecked() for role in ROLES}
+                ranks_data = {f"{role}_rank": getattr(player, f"{role}_rank_combobox").currentText() for role in ROLES}
+
+                player_data_to_save[player.name] = {
+                    'tag': player.tag,
+                    'rank': ranks_data,
+                    'role': roles_data,
+                }
+
             with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(d, f, indent=4, ensure_ascii=False)
-        except FileNotFoundError:
-            QMessageBox.warning(self, "エラー", "ファイルが見つかりません。")
+                json.dump(player_data_to_save, f, indent=4, ensure_ascii=False)
+        except Exception as e:
+            QMessageBox.warning(self, "エラー", f"ファイルの保存中にエラーが発生しました: {e}")
 
     def output_result(self):
         d = self.game_data.to_dict()
