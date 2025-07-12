@@ -1,13 +1,3 @@
-import random
-import json
-import datetime
-import requests
-from common import VERSION, RANK_VAL, RANKS, RANKS_TAG, ROLES, POSITION, WEBHOOK
-from datahandler import LoLDataHandler
-from lcu_worker import WorkerThread, PlayerData  # lcu_worker.py から WorkerThread をインポート
-from register import MatchDataUploader
-from datetime import timedelta
-from itertools import combinations, product
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -17,130 +7,22 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QPushButton,
     QListWidget,
-    QListWidgetItem,
     QMessageBox,
     QGroupBox,
     QSpinBox,
     QInputDialog,
-    QApplication,
     QGridLayout,
     QCheckBox,
-    QFileDialog,
     QMenu
 )
-from PyQt6.QtCore import Qt, QPoint, QMimeData
-from PyQt6.QtGui import QPixmap, QDrag
-from cassiopeia.data import Side
-
-
-class CustomEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if hasattr(obj, 'isoformat'):  # Arrowオブジェクトはisoformat()メソッドを持つ
-            return obj.isoformat()
-        elif isinstance(obj, timedelta):
-            return str(obj)  # 文字列に変換
-        elif isinstance(obj, Side):  # Sideオブジェクトを処理
-            return obj.name  # Sideオブジェクトのname属性を返す
-        return super().default(obj)  # その他のオブジェクトはデフォルトの処理
-
-
-class PlayerRowWidget(QWidget):
-    def __init__(self, player, handler, main_window):
-        super().__init__()
-        self.player = player
-        self.handler = handler
-        self.main_window = main_window
-        self.setAcceptDrops(True)
-        self.layout = QGridLayout(self)
-        self.layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.setColumnStretch(0, 3)
-        self.display_player()
-
-    def display_player(self):
-        # サモナー名を表示
-        summoner_name_label = QLabel(self.player.player['gameName'])
-        self.layout.addWidget(summoner_name_label, 0, 0, 1, 10)
-
-        # KDAを表示
-        self.kda_label = QLabel(f"{self.player.stats['kills']}/{self.player.stats['deaths']}/{self.player.stats['assists']}")
-        self.layout.addWidget(self.kda_label, 0, 1)
-
-        # ルーン画像を表示
-        rune_label1 = QLabel()
-        rune_images = self.handler.get_rune_image(self.player)
-        rune_image1 = QPixmap(rune_images[0])
-        rune_label1.setPixmap(rune_image1)
-        self.layout.addWidget(rune_label1, 0, 2)
-        rune_label2 = QLabel()
-        rune_image2 = QPixmap(rune_images[1])
-        rune_label2.setPixmap(rune_image2)
-        self.layout.addWidget(rune_label2, 0, 3)
-
-        # チャンピオン画像を表示
-        champion_label = QLabel()
-        champ_image = self.handler.get_champ_image(self.player.championName)
-        champ_image = champ_image.scaled(50, 50, Qt.AspectRatioMode.KeepAspectRatio)
-        champion_label.setPixmap(champ_image)
-        self.layout.addWidget(champion_label, 0, 4)
-
-        # アイテム画像を表示
-        item_images = self.handler.get_item_images(self.player)
-        for i, item_image in enumerate(item_images):
-            item_label = QLabel()
-            item_label.setPixmap(item_image)
-            self.layout.addWidget(item_label, 0, 5 + i)
-
-    def mouseMoveEvent(self, event):
-        if event.buttons() == Qt.MouseButton.LeftButton:
-            drag = QDrag(self)
-            mime_data = QMimeData()
-            mime_data.setText(self.player.player['puuid'])
-            drag.setMimeData(mime_data)
-            drag.setPixmap(self.grab())
-            drag.exec(Qt.DropAction.MoveAction)
-
-    def dragEnterEvent(self, event):
-        if event.mimeData().hasText():
-            event.accept()
-        else:
-            event.ignore()
-
-    def dropEvent(self, event):
-        source_puuid = event.mimeData().text()
-        source_widget = self.main_window.findChild(PlayerRowWidget, source_puuid)
-
-        if source_widget and source_widget != self and self.player.side == source_widget.player.side:
-            # プレイヤーが所属するチームを特定
-            team = None
-            for t in self.main_window.game_data.teams:
-                puuids = [p.player['puuid'] for p in t.participants]
-                if self.player.player['puuid'] in puuids and source_puuid in puuids:
-                    team = t
-                    break
-
-            if team:
-                layout = self.parentWidget().layout()
-                source_index = layout.indexOf(source_widget)
-                target_index = layout.indexOf(self)
-
-                # レイアウト内でウィジェットを入れ替え
-                layout.insertWidget(target_index, layout.takeAt(source_index).widget())
-
-                # UIの順序に基づいて新しいロールの辞書を作成
-                new_positions = {}
-                for i in range(layout.count()):
-                    widget = layout.itemAt(i).widget()
-                    if isinstance(widget, PlayerRowWidget):
-                        # ウィジェットのレイアウト上の位置に基づいて新しいロールを割り当てる
-                        new_positions[POSITION[i]] = widget.player.championId
-
-                # datahandlerのset_positionsを呼び出して、データ内のロールを更新
-                self.handler.set_positions(team, new_positions)
-                event.accept()
-            else:
-                event.ignore()
-        else:
-            event.ignore()
+from PyQt6.QtCore import Qt, QPoint
+from common import VERSION, RANKS, RANKS_TAG, ROLES
+from datahandler import LoLDataHandler
+from lcu_worker import WorkerThread
+from register import MatchDataUploader
+from team_balancer import divide_teams
+import actions
+import callbacks
 
 
 class MainWindow(QWidget):
@@ -151,8 +33,8 @@ class MainWindow(QWidget):
         self.history = {}
         self.handler = LoLDataHandler()
         self.uploader = MatchDataUploader()
-        self.uploader.connected.connect(self.on_connected)  # 接続完了シグナルにスロットを接続
-        self.uploader.upload_finished.connect(self.on_uploaded)  # 接続完了シグナルにスロットを接続
+        self.uploader.connected.connect(callbacks.on_connected)  # 接続完了シグナルにスロットを接続
+        self.uploader.upload_finished.connect(callbacks.on_uploaded)  # 接続完了シグナルにスロットを接続
         self.uploader.start()  # スレッドを開始
 
         # ウィンドウの設定
@@ -173,7 +55,7 @@ class MainWindow(QWidget):
         self.rank_combobox.addItems(RANKS)
         input_layout.addWidget(self.rank_combobox)
         self.add_player_button = QPushButton("追加")
-        self.add_player_button.clicked.connect(self.add_player)
+        self.add_player_button.clicked.connect(lambda: callbacks.add_player(self))
         input_layout.addWidget(self.add_player_button)
         teamsplit_layout.addLayout(input_layout)
 
@@ -181,10 +63,10 @@ class MainWindow(QWidget):
         dict_layout = QHBoxLayout()
         dict_layout.addWidget(QLabel("Player info:"))
         self.save_dict_button = QPushButton("SAVE")
-        self.save_dict_button.clicked.connect(self.save_dict_to_file)
+        self.save_dict_button.clicked.connect(lambda: actions.save_dict_to_file(self))
         dict_layout.addWidget(self.save_dict_button)
         self.load_dict_button = QPushButton("LOAD")
-        self.load_dict_button.clicked.connect(self.load_dict_from_file)
+        self.load_dict_button.clicked.connect(lambda: actions.load_dict_from_file(self))
         dict_layout.addWidget(self.load_dict_button)
         dict_layout.addSpacing(300)
         teamsplit_layout.addLayout(dict_layout)
@@ -236,26 +118,26 @@ class MainWindow(QWidget):
 
         # ロビーからプレイヤーを追加するボタン
         self.add_from_lobby_button = QPushButton("ロビーから追加")
-        self.add_from_lobby_button.clicked.connect(self.lobby_worker)
+        self.add_from_lobby_button.clicked.connect(lambda: callbacks.lobby_worker(self))
         self.lobby_worker_thread = WorkerThread()
-        self.lobby_worker_thread.data_updated.connect(self.add_players_to_list)  # シグナルにスロットを接続
+        self.lobby_worker_thread.data_updated.connect(lambda players: callbacks.add_players_to_list(self, players))  # シグナルにスロットを接続
         input_layout.addWidget(self.add_from_lobby_button)
 
         # チーム分け実行ボタン
         button_layout = QHBoxLayout()  # ボタンを横並びにするためのレイアウト
         self.divide_button = QPushButton("チーム分け")
-        self.divide_button.clicked.connect(self.divide_teams)
+        self.divide_button.clicked.connect(lambda: divide_teams(self))
         button_layout.addWidget(self.divide_button)
 
         # クリップボードにコピーするボタン
         self.copy_button = QPushButton("結果コピー")
-        self.copy_button.clicked.connect(self.copy_to_clipboard)
+        self.copy_button.clicked.connect(lambda: actions.copy_to_clipboard(self))
         button_layout.addWidget(self.copy_button)
         self.copy_button_opgg = QPushButton("結果コピー(opgg)")
-        self.copy_button_opgg.clicked.connect(self.copy_to_clipboard_opgg)
+        self.copy_button_opgg.clicked.connect(lambda: actions.copy_to_clipboard_opgg(self))
         button_layout.addWidget(self.copy_button_opgg)
         self.webhook_button = QPushButton("結果出力(Discord)")
-        self.webhook_button.clicked.connect(self.webhook_button_clicked)
+        self.webhook_button.clicked.connect(lambda: actions.webhook_button_clicked(self))
         button_layout.addWidget(self.webhook_button)
         teamsplit_layout.addLayout(button_layout)  # ボタンレイアウトを追加
 
@@ -277,16 +159,16 @@ class MainWindow(QWidget):
         # 試合結果取得ボタン
         result_button_layout = QHBoxLayout()
         self.get_game_results_button = QPushButton("試合結果取得")
-        self.get_game_results_button.clicked.connect(self.get_game_history)
+        self.get_game_results_button.clicked.connect(lambda: callbacks.get_game_history(self))
         result_button_layout.addWidget(self.get_game_results_button)
 
         # 試合履歴取得用のワーカースレッド
         self.history_worker_thread = WorkerThread()
-        self.history_worker_thread.history_updated.connect(self.display_game_history)
+        self.history_worker_thread.history_updated.connect(lambda history: callbacks.display_game_history(self, history))
 
         # ゲームID選択用のコンボボックス
         self.game_id_combobox = QComboBox()
-        self.game_id_combobox.currentIndexChanged.connect(self.game_id_selected)  # コンボボックスの選択変更時の処理
+        self.game_id_combobox.currentIndexChanged.connect(lambda index: callbacks.game_id_selected(self, index))  # コンボボックスの選択変更時の処理
         result_button_layout.addWidget(self.game_id_combobox)
 
         # 試合結果を出力するボタン
@@ -319,7 +201,7 @@ class MainWindow(QWidget):
 
         # 試合履歴取得用のワーカースレッド
         self.history_worker_thread = WorkerThread()
-        self.history_worker_thread.history_updated.connect(self.display_game_history)
+        self.history_worker_thread.history_updated.connect(lambda history: callbacks.display_game_history(self, history))
 
     def player_grid_init(self):
         labels = ["NAME"]
@@ -348,15 +230,6 @@ class MainWindow(QWidget):
                         elif action == roll_action:
                             self.check_all_roles(row)  # Delete the row
                         return  # Stop searching after deleting
-
-    def show_diff(self, team1, team2):
-        team1_rank = sum(self.rank_to_value(player.rank) for player in team1)
-        team2_rank = sum(self.rank_to_value(player.rank) for player in team2)
-        diff = abs(team1_rank - team2_rank)
-        # ラベルにランクを表示
-        self.team1_score.setText(f"Score: {team1_rank}")
-        self.team2_score.setText(f"Score: {team2_rank}")
-        self.diff_label.setText(f"チームのランク差: {diff}")
 
     def delete_row(self, row):
         """指定された行を削除"""
@@ -391,88 +264,6 @@ class MainWindow(QWidget):
                     if isinstance(widget, QCheckBox):
                         widget.setChecked(True)
 
-    def lobby_worker(self):
-        self.lobby_worker_thread.mode = "lobby"
-        self.lobby_worker_thread.start()
-
-    def get_game_history(self):
-        self.history_worker_thread.mode = "history"  # ワーカースレッドにモードを設定
-        self.history_worker_thread.start()
-
-    def display_game_history(self, history):
-        # history を QTextEdit に表示する処理
-        self.game_id_combobox.clear()  # コンボボックスをクリア
-        if history:
-            self.history = history
-            self.game_id_combobox.addItem("選択してください")  # 初期値を追加
-            for matchid in self.history:
-                self.game_id_combobox.addItem(str(matchid))  # ゲームIDを文字列に変換して追加
-
-    def game_id_selected(self, index):
-        selected_game_id = self.game_id_combobox.itemText(index)
-        if selected_game_id != "選択してください" and selected_game_id != "":  # 初期値の場合は何もしない
-            # レイアウト内のすべてのウィジェットを削除
-            for i in reversed(range(self.game_result_grid.count())):
-                self.game_result_grid.itemAt(i).widget().setParent(None)
-            # タイトルを表示
-            self.game_data = self.handler.get_game_data(self.history[int(selected_game_id)])
-            td = datetime.timedelta(seconds=self.game_data.gameDuration)
-            self.title_label = QLabel(f"Summoner's Rift ({td})")
-            self.title_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-            self.game_result_grid.addWidget(self.title_label, 0, 0, 1, 11)
-
-            # チームごとのプレイヤーウィジェットを保持するコンテナ
-            self.team_widgets = {1: QWidget(), 2: QWidget()}
-            self.team_layouts = {1: QVBoxLayout(self.team_widgets[1]), 2: QVBoxLayout(self.team_widgets[2])}
-            self.team_layouts[1].setContentsMargins(0, 0, 0, 0)
-            self.team_layouts[2].setContentsMargins(0, 0, 0, 0)
-
-            # 勝者と敗者を分けて表示
-            for team in self.game_data.teams:
-                team_id = 1 if team.isWinner == 'Win' else 2
-                self.display_team(self.game_result_grid, team_id, "Winners" if team_id == 1 else "Losers", team)
-
-            self.game_result_grid.addWidget(self.team_widgets[1], 2, 0, 1, 12)
-            self.game_result_grid.addWidget(self.team_widgets[2], 13, 0, 1, 12)
-
-    def display_team(self, grid, team_id, title, team):
-        # チームタイトルを表示
-        kill, death, assi = 0, 0, 0
-        for p in team.participants:
-            kill += p.stats['kills']
-            death += p.stats['deaths']
-            assi += p.stats['assists']
-
-        row = 1 if team_id == 1 else 12
-        self.team_title_label = QLabel(f"{title} ({kill}/{death}/{assi})")
-        self.team_title_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        grid.addWidget(self.team_title_label, row, 0, 1, 12)
-
-        # BAN Champを表示
-        self.ban_title_label = QLabel("BANS:")
-        self.ban_title_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        grid.addWidget(self.ban_title_label, row, 4)
-        champ_data = self.handler.champ_data
-        if len(team.bans) > 0:
-            for i, champ in enumerate(team.bans):
-                for champion_name, champion_data in champ_data['data'].items():
-                    if int(champion_data['key']) == champ.championId:
-                        champ.championName = champion_name
-                        pixmap = self.handler.get_champ_image(champion_name)
-                        pixmap = pixmap.scaled(30, 30, Qt.AspectRatioMode.KeepAspectRatio)
-                        champ_label = QLabel()
-                        champ_image = QPixmap(pixmap)  # 画像パスを指定
-                        champ_label.setPixmap(champ_image)
-                        grid.addWidget(champ_label, row, 5 + i)
-
-        # 各プレイヤーの情報を表示
-        team_layout = self.team_layouts[team_id]
-        sorted_participants = sorted(team.participants, key=lambda p: POSITION.index(p.position))
-        for player in sorted_participants:
-            player_widget = PlayerRowWidget(player, self.handler, self)
-            player_widget.setObjectName(player.player['puuid'])
-            team_layout.addWidget(player_widget)
-
     def add_player_gui(self, player, row):
         self.player_grid.addWidget(QLabel(f"{player.name}"), row, 0)
 
@@ -498,261 +289,6 @@ class MainWindow(QWidget):
 
         self.player_list.append(player)
 
-    def add_players_to_list(self, players):
-        for row, player in enumerate(players, start=self.player_grid.rowCount()):
-            if not any(p.name == player.name for p in self.player_list):
-                self.add_player_gui(player, row)
-
-    def add_player(self):
-        name = self.player_name_input.text()
-        rank = self.rank_combobox.currentText()
-        row = self.player_grid.rowCount()
-        if not name:
-            QMessageBox.warning(self, "エラー", "プレイヤー名を入力してください。")
-            return
-        player = PlayerData()
-        player.name = name
-        player.rank = rank
-        player.tag = 'JP1'
-        player.spectator = False
-        self.add_player_gui(player, row)
-
-    def delete_player(self):
-        selected_items = self.player_list.selectedItems()
-        if not selected_items:
-            QMessageBox.warning(self, "エラー", "プレイヤーを選択してください。")
-            return
-
-        for item in selected_items:
-            self.player_list.takeItem(self.player_list.row(item))
-
-    def copy_to_clipboard(self):
-        team1_text = "チーム1----\n"
-        for player in self.team1_player:
-            team1_text += f'{player.role}: {player.name}\n'
-
-        team2_text = "チーム2----\n"
-        for player in self.team2_player:
-            team2_text += f'{player.role}: {player.name}\n'
-
-        # クリップボードにコピー
-        QApplication.clipboard().setText(team1_text + "\n" + team2_text)
-
-    def copy_to_clipboard_opgg(self):
-        name1_list = []
-        team1_text = "チーム1----\n"
-        for player in self.team1_player:
-            team1_text += f'{player.role}: {player.name}\n'
-            name = player.name.replace(' ', '+')
-            tag = player.tag
-            name1_list.append(f'{name}%23{tag}')
-        name1 = '%2C'.join(name1_list)
-        team1_text += f'https://www.op.gg/multisearch/jp?summoners={name1}'
-
-        name2_list = []
-        team2_text = "チーム2----\n"
-        for player in self.team2_player:
-            team2_text += f'{player.role}: {player.name}\n'
-            name = player.name.replace(' ', '+')
-            tag = player.tag
-            name2_list.append(f'{name}%23{tag}')
-        name2 = '%2C'.join(name2_list)
-        team2_text += f'https://www.op.gg/multisearch/jp?summoners={name2}'
-
-        # クリップボードにコピー
-        QApplication.clipboard().setText(team1_text + "\n" + team2_text)
-
-    def webhook_button_clicked(self):
-
-        name1_list = []
-        team1_text = ""
-        for player in self.team1_player:
-            team1_text += f'{player.role}: {player.name}\n'
-            name = player.name.replace(' ', '+')
-            tag = player.tag
-            name1_list.append(f'{name}%23{tag}')
-        name1 = '%2C'.join(name1_list)
-        team1_url = f'[OPGG](https://www.op.gg/multisearch/jp?summoners={name1})'
-
-        name2_list = []
-        team2_text = ""
-        for player in self.team2_player:
-            team2_text += f'{player.role}: {player.name}\n'
-            name = player.name.replace(' ', '+')
-            tag = player.tag
-            name2_list.append(f'{name}%23{tag}')
-        name2 = '%2C'.join(name2_list)
-        team2_url = f'[OPGG](https://www.op.gg/multisearch/jp?summoners={name2})'
-
-        payload = {
-            "payload_json" : {
-                "embeds": [
-                    {
-                        "title"			: "Custom Team",
-                        "description"	: "",
-                        "url"			: "",
-                        "color"			: 5620992,
-                        "fields": [
-                            {
-                                "name"	: "Team 1",
-                                "value"	: f"{team1_text}\n {team1_url}",
-                                "inline": True,
-                            },
-                            {
-                                "name"	: "Team 2",
-                                "value"	: f"{team2_text}\n {team2_url}",
-                                "inline": True,
-                            },
-                        ],
-                    }
-                ]
-            }
-        }
-        payload['payload_json'] = json.dumps(payload['payload_json'], ensure_ascii=False)
-        requests.post(WEBHOOK, data=payload)
-
-    def divide_teams(self):
-        attend_players = []
-        for player in self.player_list:
-            attend_check = False
-            for role in ROLES:
-                role_rank = RANKS[RANKS_TAG.index(getattr(player, f"{role}_rank_combobox").currentText())]
-                setattr(player, f"{role}_rank", role_rank)
-
-                if getattr(player, role).isChecked():
-                    if not attend_check:
-                        attend_check = True
-                        attend_players.append(player)
-
-        if len(attend_players) != 10:
-            QMessageBox.warning(self, "エラー", "チーム分けには10人のプレイヤーが必要です。")
-            return
-
-        # チーム分けを実行
-        tolerance = self.tolerance_spinbox.value()
-        team1, team2 = self.perform_team_division(attend_players, tolerance)
-
-        if team1 is not None and team2 is not None:
-            # 結果をリストに表示
-            self.team1_list.clear()
-            self.team2_list.clear()
-            self.team1_player = []
-            self.team2_player = []
-            for player, role in zip(team1, ROLES):
-                item = QListWidgetItem(f"{role}: {player.name} ({getattr(player, f'{role}_rank')})")
-                self.team1_list.addItem(item)
-                player.role = role  # Add this line
-                self.team1_player.append(player)
-            for player, role in zip(team2, ROLES):
-                item = QListWidgetItem(f"{role}: {player.name} ({getattr(player, f'{role}_rank')})")
-                self.team2_list.addItem(item)
-                player.role = role  # Add this line
-                self.team2_player.append(player)
-
-            # 差分を計算
-            self.show_diff_role_based(team1, team2)  # 新しい差分表示メソッド
-        else:
-            QMessageBox.warning(self, "エラー", "チーム分けに失敗しました。ロールの組み合わせを確認してください。")
-
-    def show_diff_role_based(self, team1, team2):
-        team1_rank = sum(RANK_VAL[getattr(player, f"{role}_rank")] for player, role in zip(team1, ROLES))
-        team2_rank = sum(RANK_VAL[getattr(player, f"{role}_rank")] for player, role in zip(team2, ROLES))
-        diff = abs(team1_rank - team2_rank)
-        # ラベルにランクを表示
-        self.team1_score.setText(f"Score: {team1_rank}")
-        self.team2_score.setText(f"Score: {team2_rank}")
-        self.diff_label.setText(f"チームのランク差: {diff}")
-
-    def perform_team_division(self, players, tolerance):
-        # プレイヤーのロール情報を辞書にまとめる
-        roles = {'top': [], 'jg': [], 'mid': [], 'bot': [], 'sup': []}
-        for player in players:
-            # player.rank_val = RANK_VAL[player.rank]  # ランク値を追加
-            for role in roles:
-                if getattr(player, role).isChecked():
-                    roles[role].append(player)
-
-        # 各ロールのプレイヤー数を表示 (デバッグ用)
-        for role, player_list in roles.items():
-            if len(player_list) < 2:
-                QMessageBox.warning(self, "エラー", f"{role}のプレイヤー数は2人以上である必要があります")
-                return None, None
-
-        valid_teams = self.create_teams(players)
-
-        if len(valid_teams) > 0:
-            for team1, team2 in valid_teams:
-                if random.random() < 0.5:  # 50%の確率でチームを入れ替える
-                    team1, team2 = team2, team1
-                
-                # ランク差が許容範囲内になるまでチームメンバーを調整
-                # ロール割り当てを先に行う
-                assignments1 = self.assign_roles(team1)
-                if not assignments1:
-                    continue
-                team1_assigned = random.choice(assignments1)
-
-                assignments2 = self.assign_roles(team2)
-                if not assignments2:
-                    continue
-                team2_assigned = random.choice(assignments2)
-
-                team1_total_rank = sum(RANK_VAL[getattr(player, f"{role}_rank")] for player, role in zip(team1_assigned, ROLES))
-                team2_total_rank = sum(RANK_VAL[getattr(player, f"{role}_rank")] for player, role in zip(team2_assigned, ROLES))
-
-                diff = abs(team1_total_rank - team2_total_rank)
-                if diff <= tolerance:
-                    for player, role in zip(team1_assigned, ROLES):
-                        player.role = role
-                    for player, role in zip(team2_assigned, ROLES):
-                        player.role = role
-                    return team1_assigned, team2_assigned
-
-        return None, None
-
-    def create_teams(self, players):
-        """
-        複数のロールを選択しているプレイヤーを2つのチームに分割する関数
-
-        Args:
-        players: 各プレイヤーが選択したロールを表すオブジェクトのリスト。
-        各プレイヤーオブジェクトは、選択したロールの属性がTrueになります。
-        Returns:
-        2つのチームの可能な組み合わせのリスト。各チームは、各ロールのプレイヤーが1人ずつ含まれています。
-        """
-        n = len(players) // 2
-        all_combinations = list(combinations(players, n))
-        random.shuffle(all_combinations)
-        valid_teams = []
-        roles = ROLES
-        for team1 in all_combinations:
-            team2 = [player for player in players if player not in team1]
-            # チーム1がすべてのロールを持っているか確認する
-            has_all_roles_team1 = all(any(getattr(player, role).isChecked() for player in team1) for role in roles)
-            # チーム2がすべてのロールを持っているか確認する
-            has_all_roles_team2 = all(any(getattr(player, role).isChecked() for player in team2) for role in roles)
-            if has_all_roles_team1 and has_all_roles_team2:
-                valid_teams.append((team1, team2))
-        return valid_teams
-
-    def assign_roles(self, team):
-        combinations = []
-        role_assignments = [[player for player in team if getattr(player, role).isChecked()] for role in ROLES]
-        
-        # Check if any role has no players
-        if not all(role_assignments):
-            return []
-
-        for combination in product(*role_assignments):
-            # 重複がない組み合わせのみ追加
-            if len(set(combination)) == len(combination):
-                combinations.append(combination)
-
-        return combinations
-
-    def rank_to_value(self, rank):
-        return RANK_VAL[rank]
-
     def change_player(self):
         selected_items = self.player_list.selectedItems()
         if not selected_items:
@@ -774,75 +310,6 @@ class MainWindow(QWidget):
         item.setText(f"{current_data.rank} ({new_rank})")
         item.setData(Qt.ItemDataRole.UserRole, {"name": current_data.name, "rank": new_rank, "tag": current_data.tag})
 
-    def load_dict_from_file(self):
-        """ファイルからプレイヤー情報を読み込む"""
-        try:
-            file_path, _ = QFileDialog.getOpenFileName(self, "プレイヤー情報ファイルを開く", "", "JSONファイル (*.json)")
-            if file_path:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-
-                    for row in range(1, self.player_grid.rowCount()):  # Start from 1 to skip header
-                        name_widget_item = self.player_grid.itemAtPosition(row, 0)
-                        if not name_widget_item:
-                            continue
-                        player_name = name_widget_item.widget().text()
-
-                        if player_name in data:
-                            player_data = data[player_name]
-
-                            # Update roles and role-specific ranks
-                            col_offset = 1
-                            for role in ROLES:
-                                # Role checkbox
-                                checkbox = self.player_grid.itemAtPosition(row, col_offset).widget()
-                                checkbox.setChecked(player_data.get('role', {}).get(role, False))
-                                col_offset += 1
-
-                                # Role rank
-                                role_rank_combobox = self.player_grid.itemAtPosition(row, col_offset).widget()
-                                role_rank_combobox.setCurrentText(player_data.get('rank', {}).get(f'{role}_rank', 'UNRANKED'))
-                                col_offset += 1
-                                
-        except Exception as e:
-            QMessageBox.warning(self, "エラー", f"ファイルの読み込み中にエラーが発生しました: {e}")
-
-    def save_dict_to_file(self):
-        """プレイヤー情報をファイルに保存する"""
-        try:
-            file_path, _ = QFileDialog.getSaveFileName(self, "プレイヤー情報ファイルを保存", "player_dictionary.json", "JSONファイル (*.json)")
-            if not file_path:
-                return
-            
-            player_data_to_save = {}
-            for player in self.player_list:
-                roles_data = {role: getattr(player, role).isChecked() for role in ROLES}
-                ranks_data = {f"{role}_rank": getattr(player, f"{role}_rank_combobox").currentText() for role in ROLES}
-
-                player_data_to_save[player.name] = {
-                    'tag': player.tag,
-                    'rank': ranks_data,
-                    'role': roles_data,
-                }
-
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(player_data_to_save, f, indent=4, ensure_ascii=False)
-        except Exception as e:
-            QMessageBox.warning(self, "エラー", f"ファイルの保存中にエラーが発生しました: {e}")
-
     def output_result(self):
         d = self.game_data.to_dict()
         self.uploader.upload_match_data(d)
-
-    def on_connected(self, flag):
-        """データベース接続完了時に呼び出されるスロット"""
-        print('データベース接続が完了しました')
-
-    def on_uploaded(self, flag):
-        msg_box = QMessageBox()  # QMessageBoxのインスタンスを作成
-        if flag:
-            msg_box.setText('アップロード完了しました')
-        else:
-            msg_box.setText('アップロード失敗しました')
-        msg_box.exec()
-        return
