@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QMenu
 )
 from PyQt6.QtCore import Qt, QPoint
-from common import VERSION, RANKS, RANKS_TAG, ROLES
+from common import VERSION, RANKS, RANKS_TAG, ROLES, RANK_COLORS
 from datahandler import LoLDataHandler
 from lcu_worker import WorkerThread
 from register import MatchDataUploader
@@ -77,11 +77,18 @@ class MainWindow(QWidget):
         player_group.setAlignment(Qt.AlignmentFlag.AlignTop)
         player_group.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)  # Apply to parent
         player_group.customContextMenuRequested.connect(self.show_context_menu)  # Connect to parent
+        
+        # 新しい QVBoxLayout を作成し、グリッドとストレッチを追加
+        player_group_layout = QVBoxLayout()
         self.player_grid = QGridLayout()
         self.player_grid_init()
+        player_group_layout.addLayout(self.player_grid)
+        player_group_layout.addStretch(1)  # このストレッチがグリッドを上に押し上げる
+
         self.player_list = []
-        player_group.setLayout(self.player_grid)
-        teamsplit_layout.addWidget(player_group)
+        player_group.setLayout(player_group_layout)  # 新しいレイアウトをセット
+        
+        teamsplit_layout.addWidget(player_group, 4)
 
         # チーム分け結果表示エリア
         team_group = QGroupBox("チーム分け結果")
@@ -101,7 +108,7 @@ class MainWindow(QWidget):
         team_layout.addLayout(team1_layout)
         team_layout.addLayout(team2_layout)
         team_group.setLayout(team_layout)
-        teamsplit_layout.addWidget(team_group)
+        teamsplit_layout.addWidget(team_group, 2)
 
         # チームのランク差を表示するラベル
         self.diff_label = QLabel()
@@ -186,7 +193,7 @@ class MainWindow(QWidget):
         self.game_result_grid = QGridLayout()
         self.result_context_layout.addLayout(self.game_result_grid)
         game_results_group.setLayout(self.result_context_layout)
-        game_results_group.setMinimumSize(500, 600)
+        game_results_group.setMinimumSize(500, 800)
 
         # 試合結果取得ボタンと試合結果表示エリアをまとめる
         game_results_outer_layout.addWidget(game_results_group)
@@ -204,10 +211,7 @@ class MainWindow(QWidget):
         self.history_worker_thread.history_updated.connect(lambda history: callbacks.display_game_history(self, history))
 
     def player_grid_init(self):
-        labels = ["NAME"]
-        for role in ROLES:
-            labels.append(role.upper())
-            labels.append("RANK")
+        labels = ["NAME"] + [role.upper() for role in ROLES]
         for col, label_text in enumerate(labels):
             self.player_grid.addWidget(QLabel(label_text), 0, col)
             self.player_grid.setColumnStretch(col, 1)
@@ -256,38 +260,55 @@ class MainWindow(QWidget):
 
     def check_all_roles(self, row):
         """指定された行のロールを選択状態にする"""
-        if 0 <= row < self.player_grid.rowCount():
-            for col in range(3, self.player_grid.columnCount()):
-                item = self.player_grid.itemAtPosition(row, col)
-                if item:
-                    widget = item.widget()
-                    if isinstance(widget, QCheckBox):
-                        widget.setChecked(True)
+        if 0 < row <= len(self.player_list):
+            player = self.player_list[row - 1]  # Adjust for header row
+            for role in ROLES:
+                checkbox = getattr(player, role)
+                checkbox.setChecked(True)
+
+    def update_rank_color(self, combo_box: QComboBox):
+        """コンボボックスの色をランクに応じて変更する"""
+        try:
+            rank_tag = combo_box.currentText()
+            index = RANKS_TAG.index(rank_tag)
+            rank_name = RANKS[index]
+            tier = rank_name.split(" ")[0]
+            color = RANK_COLORS.get(tier, "#FFFFFF")
+            combo_box.setStyleSheet(f"background-color: {color}; color: #000000;")
+        except (ValueError, IndexError):
+            combo_box.setStyleSheet("background-color: #FFFFFF; color: #000000;") # Default color
 
     def add_player_gui(self, player, row):
+        # 以前の alignment 指定は不要
         self.player_grid.addWidget(QLabel(f"{player.name}"), row, 0)
 
-        col_offset = 1
-        for role in ROLES:
-            # Role checkbox
-            setattr(player, role, QCheckBox(''))
-            self.player_grid.addWidget(getattr(player, role), row, col_offset)
-            col_offset += 1
+        for col_offset, role in enumerate(ROLES, 1):
+            cell_widget = QWidget()
+            cell_layout = QHBoxLayout(cell_widget)
+            cell_layout.setContentsMargins(2, 2, 2, 2)
 
-            # Rank combobox for the role
+            checkbox = QCheckBox('')
+            setattr(player, role, checkbox)
+            cell_layout.addWidget(checkbox)
+
             rank_combobox = QComboBox()
             rank_combobox.addItems(RANKS_TAG)
-            # Set initial rank if available in player data, otherwise default to UNRANKED
             if hasattr(player, "rank"):
                 role_rank = getattr(player, "rank")
-                if role_rank == '':
+                if role_rank == '' or role_rank not in RANKS:
                     role_rank = 'UNRANKED'
                 rank_combobox.setCurrentText(RANKS_TAG[RANKS.index(role_rank)])
             else:
                 rank_combobox.setCurrentText("UN")
             setattr(player, f"{role}_rank_combobox", rank_combobox)
-            self.player_grid.addWidget(rank_combobox, row, col_offset)
-            col_offset += 1
+            
+            # 色の更新とシグナル接続
+            self.update_rank_color(rank_combobox)
+            rank_combobox.currentTextChanged.connect(lambda text, cb=rank_combobox: self.update_rank_color(cb))
+            
+            cell_layout.addWidget(rank_combobox)
+            # 以前の alignment 指定は不要
+            self.player_grid.addWidget(cell_widget, row, col_offset)
 
         self.player_list.append(player)
 
@@ -300,7 +321,6 @@ class MainWindow(QWidget):
         item = selected_items[0]
         current_data = item.data(Qt.ItemDataRole.UserRole)
 
-        # 変更内容を入力するためのダイアログを表示
         if current_data.rank == '':
             new_rank, ok_pressed = QInputDialog.getItem(self, "ランク変更", "新しいランク:", RANKS, RANKS.index('SILVER IV'), False)
         else:
@@ -308,7 +328,6 @@ class MainWindow(QWidget):
         if not ok_pressed:
             return
 
-        # プレイヤー情報を更新
         item.setText(f"{current_data.rank} ({new_rank})")
         item.setData(Qt.ItemDataRole.UserRole, {"name": current_data.name, "rank": new_rank, "tag": current_data.tag})
 

@@ -104,6 +104,21 @@ RANKS_TAG = [
     "C",
 ]
 
+# ランクのティアに対応する色を追加
+RANK_COLORS = {
+    "UNRANKED": "#FFFFFF",
+    "IRON": "#51484A",
+    "BRONZE": "#8C5229",
+    "SILVER": "#8098A1",
+    "GOLD": "#CD8837",
+    "PLATINUM": "#4E9996",
+    "EMERALD": "#2ECC71",
+    "DIAMOND": "#576ACC",
+    "MASTER": "#9A4E9E",
+    "GRANDMASTER": "#CD4545",
+    "CHALLENGER": "#F4C775",
+}
+
 ROLES = ['top', 'jg', 'mid', 'bot', 'sup']
 POSITION = ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"]
 

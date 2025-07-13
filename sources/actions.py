@@ -1,7 +1,7 @@
 import json
 import requests
 from PyQt6.QtWidgets import QFileDialog, QMessageBox, QApplication
-from common import WEBHOOK, ROLES
+from common import WEBHOOK, ROLES, RANKS_TAG, RANKS
 
 
 def save_dict_to_file(main_window):
@@ -36,27 +36,26 @@ def load_dict_from_file(main_window):
             with open(file_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
 
-                for row in range(1, main_window.player_grid.rowCount()):  # Start from 1 to skip header
-                    name_widget_item = main_window.player_grid.itemAtPosition(row, 0)
-                    if not name_widget_item:
-                        continue
-                    player_name = name_widget_item.widget().text()
+                # Iterate through player objects instead of grid for robustness
+                for player in main_window.player_list:
+                    if player.name in data:
+                        player_data = data[player.name]
 
-                    if player_name in data:
-                        player_data = data[player_name]
-
-                        # Update roles and role-specific ranks
-                        col_offset = 1
+                        # Update roles and role-specific ranks from the player object
                         for role in ROLES:
-                            # Role checkbox
-                            checkbox = main_window.player_grid.itemAtPosition(row, col_offset).widget()
-                            checkbox.setChecked(player_data.get('role', {}).get(role, False))
-                            col_offset += 1
+                            # Update checkbox
+                            if hasattr(player, role):
+                                checkbox = getattr(player, role)
+                                checkbox.setChecked(player_data.get('role', {}).get(role, False))
 
-                            # Role rank
-                            role_rank_combobox = main_window.player_grid.itemAtPosition(row, col_offset).widget()
-                            role_rank_combobox.setCurrentText(player_data.get('rank', {}).get(f'{role}_rank', 'UNRANKED'))
-                            col_offset += 1
+                            # Update combobox
+                            if hasattr(player, f"{role}_rank_combobox"):
+                                rank_combobox = getattr(player, f"{role}_rank_combobox")
+                                rank_tag = player_data.get('rank', {}).get(f'{role}_rank', 'UN')
+                                if rank_tag in RANKS_TAG:
+                                    rank_combobox.setCurrentText(rank_tag)
+                                elif rank_tag in RANKS: # Handle old format
+                                    rank_combobox.setCurrentText(RANKS_TAG[RANKS.index(rank_tag)])
 
     except Exception as e:
         QMessageBox.warning(main_window, "エラー", f"ファイルの読み込み中にエラーが発生しました: {e}")
