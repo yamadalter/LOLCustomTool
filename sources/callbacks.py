@@ -1,5 +1,7 @@
 import datetime
 from PyQt6.QtWidgets import QMessageBox, QLabel, QWidget, QVBoxLayout
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QPixmap
 from common import POSITION, ROLES
 from lcu_worker import PlayerData
 from widgets import PlayerRowWidget
@@ -50,7 +52,7 @@ def game_id_selected(main_window, index):
         main_window.game_data = main_window.handler.get_game_data(main_window.history[int(selected_game_id)])
         td = datetime.timedelta(seconds=main_window.game_data.gameDuration)
         main_window.title_label = QLabel(f"Summoner's Rift ({td})")
-        main_window.title_label.setAlignment(main_window.Qt.AlignmentFlag.AlignLeft)
+        main_window.title_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         main_window.game_result_grid.addWidget(main_window.title_label, 0, 0, 1, 11)
 
         # チームごとのプレイヤーウィジェットを保持するコンテナ
@@ -78,12 +80,12 @@ def display_team(main_window, grid, team_id, title, team):
 
     row = 1 if team_id == 1 else 12
     main_window.team_title_label = QLabel(f"{title} ({kill}/{death}/{assi})")
-    main_window.team_title_label.setAlignment(main_window.Qt.AlignmentFlag.AlignLeft)
+    main_window.team_title_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
     grid.addWidget(main_window.team_title_label, row, 0, 1, 12)
 
     # BAN Champを表示
     main_window.ban_title_label = QLabel("BANS:")
-    main_window.ban_title_label.setAlignment(main_window.Qt.AlignmentFlag.AlignLeft)
+    main_window.ban_title_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
     grid.addWidget(main_window.ban_title_label, row, 4)
     champ_data = main_window.handler.champ_data
     if len(team.bans) > 0:
@@ -92,9 +94,9 @@ def display_team(main_window, grid, team_id, title, team):
                 if int(champion_data['key']) == champ.championId:
                     champ.championName = champion_name
                     pixmap = main_window.handler.get_champ_image(champion_name)
-                    pixmap = pixmap.scaled(30, 30, main_window.Qt.AspectRatioMode.KeepAspectRatio)
+                    pixmap = pixmap.scaled(30, 30, Qt.AspectRatioMode.KeepAspectRatio)
                     champ_label = QLabel()
-                    champ_image = main_window.QPixmap(pixmap)  # 画像パスを指定
+                    champ_image = QPixmap(pixmap)  # 画像パスを指定
                     champ_label.setPixmap(champ_image)
                     grid.addWidget(champ_label, row, 5 + i)
 

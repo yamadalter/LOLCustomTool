@@ -1,7 +1,7 @@
 import random
 from itertools import combinations, product
 from PyQt6.QtWidgets import QMessageBox, QListWidgetItem
-from common import RANK_VAL, ROLES
+from common import RANK_VAL, ROLES, RANKS, RANKS_TAG
 
 
 def divide_teams(main_window):
@@ -9,7 +9,7 @@ def divide_teams(main_window):
     for player in main_window.player_list:
         attend_check = False
         for role in ROLES:
-            role_rank = main_window.RANKS[main_window.RANKS_TAG.index(getattr(player, f"{role}_rank_combobox").currentText())]
+            role_rank = RANKS[RANKS_TAG.index(getattr(player, f"{role}_rank_combobox").currentText())]
             setattr(player, f"{role}_rank", role_rank)
 
             if getattr(player, role).isChecked():

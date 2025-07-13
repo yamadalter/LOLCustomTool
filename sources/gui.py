@@ -280,6 +280,8 @@ class MainWindow(QWidget):
             # Set initial rank if available in player data, otherwise default to UNRANKED
             if hasattr(player, "rank"):
                 role_rank = getattr(player, "rank")
+                if role_rank == '':
+                    role_rank = 'UNRANKED'
                 rank_combobox.setCurrentText(RANKS_TAG[RANKS.index(role_rank)])
             else:
                 rank_combobox.setCurrentText("UN")
